@@ -1,0 +1,521 @@
+use crate::config::instances_dir;
+use serde::Serialize;
+use std::collections::HashSet;
+use std::fs;
+use std::path::Path;
+use std::process::Command;
+use std::sync::{Arc, Mutex};
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+use tauri::{AppHandle, Emitter};
+pub struct LaunchProcess {
+    pub pid: u32,
+    pub child: std::process::Child,
+}
+
+pub struct LaunchState {
+    pub process: Option<LaunchProcess>,
+}
+
+pub static LAUNCH_STATE: once_cell::sync::Lazy<Arc<Mutex<LaunchState>>> =
+    once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(LaunchState { process: None })));
+
+#[derive(Debug, Clone)]
+struct LibraryEntry {
+    path: String,
+}
+
+#[derive(Debug, Clone, Default)]
+struct ResolvedVersion {
+    id: String,
+    main_class: String,
+    libraries: Vec<LibraryEntry>,
+    jvm_args: Vec<String>,
+    game_args: Vec<String>,
+    client_jar_path: String,
+    extra_jars: Vec<String>,
+}
+
+fn resolve_libraries(json: &serde_json::Value) -> Vec<LibraryEntry> {
+    let mut out = Vec::new();
+    if let Some(libs) = json.get("libraries").and_then(|l| l.as_array()) {
+        for lib in libs {
+            if !crate::installer::rules_allow(lib) {
+                continue;
+            }
+            let name = lib.get("name").and_then(|n| n.as_str()).unwrap_or("");
+            let path = lib
+                .get("downloads")
+                .and_then(|d| d.get("artifact"))
+                .and_then(|a| a.get("path"))
+                .and_then(|p| p.as_str())
+                .map(String::from)
+                .or_else(|| {
+                    let parts: Vec<&str> = name.splitn(3, ':').collect();
+                    if parts.len() < 3 {
+                        return None;
+                    }
+                    Some(format!(
+                        "{}/{}/{}/{}-{}.jar",
+                        parts[0].replace('.', "/"),
+                        parts[1],
+                        parts[2],
+                        parts[1],
+                        parts[2]
+                    ))
+                });
+            if let Some(p) = path {
+                out.push(LibraryEntry { path: p });
+            }
+        }
+    }
+    out
+}
+fn extract_args(json: &serde_json::Value) -> (Vec<String>, Vec<String>) {
+    let mut jvm = Vec::new();
+    let mut game = Vec::new();
+    if let Some(arguments) = json.get("arguments") {
+        if let Some(arr) = arguments.get("jvm").and_then(|a| a.as_array()) {
+            for arg in arr {
+                jvm.extend(arg_values(arg));
+            }
+        }
+        if let Some(arr) = arguments.get("game").and_then(|a| a.as_array()) {
+            for arg in arr {
+                game.extend(arg_values(arg));
+            }
+        }
+    }
+    let legacy = json
+        .get("minecraftArguments")
+        .and_then(|a| a.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    if game.is_empty() && !legacy.is_empty() {
+        game.extend(legacy.split_whitespace().map(String::from));
+    }
+    (jvm, game)
+}
+fn mojang_os() -> &'static str {
+    match std::env::consts::OS {
+        "windows" => "windows",
+        "macos" => "osx",
+        _ => "linux",
+    }
+}
+fn arg_rules_allow(rules: &serde_json::Value) -> bool {
+    let Some(arr) = rules.as_array() else { return true };
+    let mut allowed = false;
+    let mut matched = false;
+    for rule in arr {
+        let action = rule.get("action").and_then(|a| a.as_str());
+        let os = rule.get("os");
+        let os_name = os.and_then(|o| o.get("name")).and_then(|n| n.as_str()).unwrap_or("");
+        let arch = os.and_then(|o| o.get("arch")).and_then(|n| n.as_str()).unwrap_or("");
+        let os_ok = os.is_none() || os_name.is_empty() || os_name == mojang_os();
+        let arch_ok = arch.is_empty() || arch == std::env::consts::ARCH;
+        if !os_ok || !arch_ok {
+            continue;
+        }
+        if let Some(features) = rule.get("features").and_then(|f| f.as_object()) {
+            let mut feat_ok = true;
+            for (k, v) in features {
+                let v_bool = v.as_bool().unwrap_or(false);
+                let actual = match k.as_str() {
+                    "is_demo_user" => false,           // Launcher con cuenta completa, nunca demo
+                    "has_custom_resolution" => true,  // Especificamos width y height
+                    _ => false,                        // quickPlay u otras features no activas
+                };
+                if actual != v_bool {
+                    feat_ok = false;
+                    break;
+                }
+            }
+            if !feat_ok {
+                continue;
+            }
+        }
+        matched = true;
+        allowed = action == Some("allow");
+    }
+    matched && allowed
+}
+fn arg_values(arg: &serde_json::Value) -> Vec<String> {
+    if let Some(s) = arg.as_str() {
+        return vec![s.to_string()];
+    }
+    let Some(obj) = arg.as_object() else { return Vec::new() };
+    if let Some(rs) = obj.get("rules") {
+        if !arg_rules_allow(rs) {
+            return Vec::new();
+        }
+    }
+    let mut out = Vec::new();
+    if let Some(val) = obj.get("value") {
+        if let Some(arr) = val.as_array() {
+            for v in arr {
+                if let Some(s) = v.as_str() {
+                    out.push(s.to_string());
+                }
+            }
+        } else if let Some(s) = val.as_str() {
+            out.push(s.to_string());
+        }
+    }
+    out
+}
+fn load_version_chain(
+    instance_dir: &Path,
+    version_id: &str,
+) -> Result<Vec<serde_json::Value>, String> {
+    let versions_dir = instance_dir.join("versions");
+    let mut chain = Vec::new();
+    let mut current = version_id.to_string();
+    let mut seen: HashSet<String> = HashSet::new();
+    loop {
+        let json_path = versions_dir.join(&current).join(format!("{current}.json"));
+        let text = fs::read_to_string(&json_path)
+            .map_err(|e| format!("no se encuentra el JSON de la versión '{version_id}': {e}"))?;
+        let json: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|e| format!("JSON de versión inválido ({current}): {e}"))?;
+        chain.push(json.clone());
+        seen.insert(current.clone());
+        let next = json
+            .get("inheritsFrom")
+            .and_then(|i| i.as_str())
+            .map(String::from);
+        match next {
+            Some(parent) if !seen.contains(&parent) => current = parent,
+            _ => break,
+        }
+    }
+    Ok(chain)
+}
+
+fn resolve_version(instance_dir: &Path, version_id: &str) -> Result<ResolvedVersion, String> {
+    let chain = load_version_chain(instance_dir, version_id)?;
+
+    let mut main_class = String::new();
+    let mut libraries: Vec<LibraryEntry> = Vec::new();
+    let mut jvm_args: Vec<String> = Vec::new();
+    let mut game_args: Vec<String> = Vec::new();
+    let mut client_jar_path = String::new();
+    let mut extra_jars: Vec<String> = Vec::new();
+    for json in chain.iter().rev() {
+        let (j, g) = extract_args(json);
+        jvm_args.extend(j);
+        game_args.extend(g);
+        libraries.extend(resolve_libraries(json));
+    }
+    for json in chain.iter() {
+        if let Some(mc) = json.get("mainClass").and_then(|m| m.as_str()) {
+            if !mc.is_empty() {
+                main_class = mc.to_string();
+                break;
+            }
+        }
+    }
+    let versions_dir = instance_dir.join("versions");
+    if let Some(base) = chain.last() {
+        let base_id = base.get("id").and_then(|i| i.as_str()).unwrap_or(version_id);
+        client_jar_path = versions_dir
+            .join(base_id)
+            .join(format!("{base_id}.jar"))
+            .to_string_lossy()
+            .to_string();
+    }
+    if let Some(hijo) = chain.first() {
+        let id = hijo.get("id").and_then(|i| i.as_str()).unwrap_or(version_id);
+        if id != chain.last().and_then(|b| b.get("id")).and_then(|i| i.as_str()).unwrap_or("") {
+            let lp = versions_dir.join(id).join(format!("{id}.jar"));
+            if lp.exists() {
+                extra_jars.push(lp.to_string_lossy().to_string());
+            }
+        }
+    }
+    jvm_args.dedup();
+    game_args.dedup();
+
+    Ok(ResolvedVersion {
+        id: version_id.to_string(),
+        main_class,
+        libraries,
+        jvm_args,
+        game_args,
+        client_jar_path,
+        extra_jars,
+    })
+}
+
+fn build_classpath(resolved: &ResolvedVersion, instance_dir: &Path) -> String {
+    let mut cp_paths = Vec::new();
+    let libs_base = instance_dir.join("libraries");
+    for lib in &resolved.libraries {
+        let full = libs_base.join(&lib.path);
+        if full.exists() {
+            cp_paths.push(full.to_string_lossy().to_string());
+        }
+    }
+    let is_forge_or_neoforge = resolved.main_class.contains("bootstraplauncher")
+        || resolved.main_class.contains("modlauncher")
+        || resolved.id.to_lowercase().contains("forge");
+
+    let has_srg = {
+        let client_dir = libs_base.join("net").join("minecraft").join("client");
+        if let Ok(entries) = fs::read_dir(&client_dir) {
+            entries.flatten().any(|e| {
+                let p = e.path();
+                if p.is_dir() {
+                    if let Ok(sub) = fs::read_dir(&p) {
+                        return sub.flatten().any(|se| {
+                            se.path()
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .map(|n| n.ends_with("-srg.jar") || n.ends_with("-extra.jar"))
+                                .unwrap_or(false)
+                        });
+                    }
+                }
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.ends_with("-srg.jar") || n.ends_with("-extra.jar"))
+                    .unwrap_or(false)
+            })
+        } else {
+            false
+        }
+    };
+
+    if !has_srg
+        && !is_forge_or_neoforge
+        && !resolved.client_jar_path.is_empty()
+        && Path::new(&resolved.client_jar_path).exists()
+    {
+        cp_paths.push(resolved.client_jar_path.clone());
+    }
+    for j in &resolved.extra_jars {
+        if Path::new(j).exists() {
+            cp_paths.push(j.clone());
+        }
+    }
+    cp_paths.join(if cfg!(target_os = "windows") { ";" } else { ":" })
+}
+
+fn build_launch_command(
+    java_path: &str,
+    resolved: &ResolvedVersion,
+    instance_dir: &Path,
+    account: &crate::config::Account,
+    ram_min_mb: u32,
+    ram_max_mb: u32,
+) -> Vec<String> {
+    let mut cmd = Vec::new();
+    cmd.push(java_path.to_string());
+    let meta = crate::instances::load_meta(instance_dir);
+    let mod_count = crate::jvm::count_mods(instance_dir);
+    let java_major = crate::java::required_java_major_heuristic(&meta.game_version);
+    let flags =
+        crate::jvm::generate_jvm_flags(java_major, ram_max_mb / 1024, mod_count, false);
+    cmd.extend(flags);
+    cmd.push(format!("-Xmx{ram_max_mb}M"));
+    cmd.push(format!("-Xms{ram_min_mb}M"));
+    let cp = build_classpath(resolved, instance_dir);
+
+    let game_dir = instance_dir.to_string_lossy().to_string();
+    let assets_root = instance_dir.join("assets").to_string_lossy().to_string();
+    let natives_dir = instance_dir.join("natives").to_string_lossy().to_string();
+    let libraries_dir = instance_dir.join("libraries").to_string_lossy().to_string();
+    let expander = |arg: &mut String| {
+        *arg = arg.replace("${auth_player_name}", &account.name);
+        *arg = arg.replace("${auth_uuid}", &account.id.replace('-', ""));
+        *arg = arg.replace("${auth_access_token}", &account.access_token);
+        *arg = arg.replace("${user_properties}", "{}");
+        let user_type = if account.access_token.is_empty() {
+            "legacy"
+        } else {
+            "msa"
+        };
+        *arg = arg.replace("${user_type}", user_type);
+        *arg = arg.replace("${version_type}", "release");
+        *arg = arg.replace("${game_directory}", &game_dir);
+        *arg = arg.replace("${assets_root}", &assets_root);
+        *arg = arg.replace("${game_assets}", &assets_root);
+        *arg = arg.replace("${version_name}", &resolved.id);
+        *arg = arg.replace("${fabric_classpath_path}", &cp);
+        *arg = arg.replace("${launcher_name}", "Atalauncher");
+        *arg = arg.replace("${launcher_version}", "0.1");
+        *arg = arg.replace("${natives_directory}", &natives_dir);
+        *arg = arg.replace("${classpath}", &cp);
+        *arg = arg.replace(
+            "${classpath_separator}",
+            if cfg!(target_os = "windows") { ";" } else { ":" },
+        );
+        *arg = arg.replace("${library_directory}", &libraries_dir);
+        *arg = arg.replace("${assets_index_name}", &meta.game_version);
+        *arg = arg.replace("${clientid}", "Atalauncher");
+        *arg = arg.replace("${auth_xuid}", "");
+        *arg = arg.replace("${resolution_width}", "1280");
+        *arg = arg.replace("${resolution_height}", "720");
+        *arg = arg.replace("${quickPlayPath}", "");
+        *arg = arg.replace("${quickPlaySingleplayer}", "");
+        *arg = arg.replace("${quickPlayMultiplayer}", "");
+        *arg = arg.replace("${quickPlayRealms}", "");
+    };
+    let mut jvm_args = resolved.jvm_args.clone();
+    for arg in &mut jvm_args {
+        expander(arg);
+    }
+    cmd.extend(jvm_args);
+
+    if !cp.is_empty() {
+        cmd.push("-cp".to_string());
+        cmd.push(cp.clone());
+    }
+    if !resolved.main_class.is_empty() {
+        cmd.push(resolved.main_class.clone());
+    }
+    let mut game_args = resolved.game_args.clone();
+    for arg in &mut game_args {
+        expander(arg);
+    }
+    let mut filtered: Vec<String> = Vec::with_capacity(game_args.len());
+    let mut skip_next = false;
+    for a in game_args {
+        if a == "--width" || a == "--height" {
+            skip_next = true;
+            continue;
+        }
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+        filtered.push(a);
+    }
+    cmd.extend(filtered);
+    cmd
+}
+
+#[derive(Clone, Serialize)]
+pub struct LogLine {
+    pub line: String,
+    pub stream: String, // stdout | stderr
+}
+pub fn launch_minecraft(
+    app: AppHandle,
+    instance_name: &str,
+    java_path: &str,
+    account: crate::config::Account,
+) -> Result<u32, String> {
+    let instance_dir = instances_dir().join(instance_name);
+    if !instance_dir.exists() {
+        return Err("La instancia no existe".to_string());
+    }
+    let meta = crate::instances::load_meta(&instance_dir);
+
+    let version_id = if !meta.version_id.is_empty() {
+        meta.version_id.clone()
+    } else {
+        crate::instances::installed_version_id(&instance_dir, &meta)
+            .unwrap_or_else(|| meta.game_version.clone())
+    };
+
+    let resolved = resolve_version(&instance_dir, &version_id)?;
+    let (ram_min_mb, ram_max_mb) = crate::jvm::effective_max_ram(&instance_dir);
+    let command = build_launch_command(
+        java_path,
+        &resolved,
+        &instance_dir,
+        &account,
+        ram_min_mb,
+        ram_max_mb,
+    );
+    let settings = crate::config::Settings::load();
+    if settings.antilag_enabled && !settings.antilag_host.trim().is_empty() {
+        match crate::antilag::start_tunnel(&settings.antilag_host) {
+            Ok(n) => {
+                println!(
+                    "[antilag] túnel activo para {n} IP(s) del servidor '{}'",
+                    settings.antilag_host
+                );
+            }
+            Err(e) => {
+                println!("[antilag] aviso: {e}");
+            }
+        }
+    }
+
+    let mut cmd = Command::new(&command[0]);
+    cmd.args(&command[1..])
+        .current_dir(&instance_dir)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: sin ventana de consola
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("error al lanzar el juego: {e}"))?;
+
+    let pid = child.id();
+
+    let stamp = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
+    fs::write(instance_dir.join("last_launched.txt"), stamp).ok();
+    crate::discord::set_playing(instance_name, &meta.game_version, &meta.loader);
+
+    let started = std::time::Instant::now();
+    if let Some(stdout) = child.stdout.take() {
+        use std::io::BufRead;
+        let reader = std::io::BufReader::new(stdout);
+        let app2 = app.clone();
+        std::thread::spawn(move || {
+            for line in reader.lines().flatten() {
+                let _ = app2.emit(
+                    "launch/line",
+                    LogLine { line: line.clone(), stream: "stdout".to_string() },
+                );
+            }
+            if started.elapsed().as_secs() < 6 {
+                let _ = app2.emit(
+                    "launch/error",
+                    "El proceso de Java terminó nada más arrancar. Suele deberse a la memoria asignada o a un flag de JVM: prueba a ajustar la RAM en Ajustes, o a quitar el Java manual si lo tenías puesto.",
+                );
+            }
+            let _ = app2.emit("launch/exit", pid);
+            crate::antilag::stop_tunnel();
+            crate::discord::set_launcher_idle();
+        });
+    }
+    if let Some(stderr) = child.stderr.take() {
+        use std::io::BufRead;
+        let reader = std::io::BufReader::new(stderr);
+        let app2 = app.clone();
+        std::thread::spawn(move || {
+            for line in reader.lines().flatten() {
+                let _ = app2.emit(
+                    "launch/line",
+                    LogLine { line: line.clone(), stream: "stderr".to_string() },
+                );
+            }
+        });
+    }
+
+    {
+        let mut state = LAUNCH_STATE.lock().map_err(|_| "lock launch state")?;
+        state.process = Some(LaunchProcess { pid, child });
+    }
+
+    Ok(pid)
+}
+
+pub fn kill_game() -> Result<(), String> {
+    let mut state = LAUNCH_STATE.lock().map_err(|_| "lock launch state")?;
+    if let Some(mut proc) = state.process.take() {
+        let _ = proc.child.kill();
+    }
+    crate::discord::set_launcher_idle();
+    Ok(())
+}
+
+pub fn is_running() -> bool {
+    LAUNCH_STATE.lock().map(|s| s.process.is_some()).unwrap_or(false)
+}

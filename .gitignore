@@ -1,0 +1,18 @@
+# Rust/Tauri: artefactos de compilación (¡nunca subir target/)
+/src-tauri/target/
+/src-tauri/gen/schemas/
+
+# Temporal del editor .freebuff
+.freebuff/
+
+# CLIENT_ID de Microsoft (nunca subir: es el de tu app Azure)
+src-tauri/client_id.env
+
+# Editores
+.idea/
+.vscode/
+*.iml
+
+# Windows
+Thumbs.db
+Desktop.ini

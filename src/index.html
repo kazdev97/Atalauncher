@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Atalauncher</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    
+    <button id="theme-toggle" class="theme-toggle-btn" title="Cambiar modo oscuro / claro" aria-label="Cambiar modo oscuro / claro">
+      <svg class="theme-icon icon-sun" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="5"></circle>
+        <line x1="12" y1="1" x2="12" y2="3"></line>
+        <line x1="12" y1="21" x2="12" y2="23"></line>
+        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+        <line x1="1" y1="12" x2="3" y2="12"></line>
+        <line x1="21" y1="12" x2="23" y2="12"></line>
+        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+      </svg>
+      <svg class="theme-icon icon-moon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+      </svg>
+    </button>
+
+    
+    <nav class="sidebar">
+      <div class="brand"><a class="brand-logo" href="https://github.com/kazdev97/Atalauncher" target="_blank" rel="noopener"><img src="assets/icono.png" alt="Atalauncher" /></a><span class="brand-pride" aria-hidden="true"></span></div>
+      <div class="nav-items">
+        <button class="nav-item active" data-page="login">Cuenta</button>
+        <button class="nav-item" data-page="instances">Instancias</button>
+        <button class="nav-item" data-page="settings">Ajustes</button>
+        <button class="nav-item" data-page="console">Consola</button>
+      </div>
+      <div class="nav-footer">
+        <button id="donate-btn" class="donate-btn">
+          <img src="https://storage.ko-fi.com/cdn/logomarkLogo.png" alt="Ko-fi" width="22" height="22" />
+          <span>Donar</span>
+        </button>
+        <div id="nav-user-container" class="nav-user-card" title="Ver cuenta">
+          <img id="nav-user-avatar" class="nav-user-avatar hidden" src="" alt="Avatar" />
+          <span id="nav-user" class="nav-user">Sin sesión</span>
+        </div>
+      </div>
+    </nav>
+
+    
+    <main class="content">
+      
+      <section id="page-login" class="page active">
+        <h1>Cuenta</h1>
+        <div class="card glass">
+          <div id="login-box">
+            <p>Inicia sesión con tu cuenta de Microsoft para jugar.</p>
+            <button class="btn primary" id="btn-login">Iniciar sesión con Microsoft</button>
+          </div>
+          <div id="login-ok" class="hidden">
+            <div class="account-profile">
+              <div class="account-skin-box">
+                <img id="login-skin-body" class="account-skin-img" src="" alt="Skin de Minecraft" />
+              </div>
+              <div class="account-details">
+                <div class="account-header">
+                  <img id="login-avatar-head" class="account-head-img" src="" alt="Cabeza" />
+                  <div>
+                    <span class="account-type-badge">Cuenta Microsoft</span>
+                    <h2 id="login-name" class="account-username"></h2>
+                  </div>
+                </div>
+                <div class="account-info-box">
+                  <div class="account-info-item">
+                    <span class="muted">UUID:</span>
+                    <code id="login-uuid" class="account-uuid"></code>
+                  </div>
+                  <div class="account-info-item">
+                    <span class="muted">Estado:</span>
+                    <span id="account-status" class="account-status-online">● Conectado a Microsoft</span>
+                  </div>
+                </div>
+                <div class="account-actions">
+                  <button class="btn relogin hidden" id="btn-relogin">Relogin</button>
+                  <button class="btn danger" id="btn-logout">Cerrar sesión</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="card glass">
+          <h2>Modo No premium</h2>
+          <p class="muted">Juega sin cuenta de Microsoft (No-Premium).</p>
+          <label class="switch">
+            <input type="checkbox" id="offline-mode" />
+            <span class="switch-track"><span class="switch-knob"></span></span>
+            <span>Activar modo No premium</span>
+          </label>
+          <div class="form-grid">
+            <label>Nombre de usuario
+              <input id="offline-username" placeholder="Ej. Juanito67" maxlength="16" />
+            </label>
+          </div>
+          <button class="btn primary" id="btn-save-offline">Guardar y usar modo No premium</button>
+          <p id="offline-status" class="status"></p>
+        </div>
+        <p id="login-status" class="status"></p>
+      </section>
+
+      
+      <section id="page-instances" class="page">
+        <div class="page-head">
+          <h1>Instancias</h1>
+        </div>
+
+        <div class="card glass">
+          <h2>Instancias disponibles</h2>
+          <div id="available-list" class="list"></div>
+        </div>
+
+        <div class="card glass hidden" id="install-progress">
+          <div class="progress-track">
+            <div class="progress-fill" id="install-fill"></div>
+          </div>
+          <p id="install-text" class="muted">Instalando...</p>
+        </div>
+
+        <div id="updates-banner" class="card glass hidden"></div>
+
+        <div id="instances-list" class="list"></div>
+        <p id="instances-status" class="status"></p>
+      </section>
+
+      
+      <section id="page-settings" class="page">
+        <h1>Ajustes</h1>
+
+        <div class="card glass">
+          <h2>Memoria</h2>
+          <p class="muted" id="ram-info">Cargando información de RAM...</p>
+          <div class="row">
+            <label>Instancia (para la recomendación)
+              <select id="ram-instance"></select>
+            </label>
+          </div>
+          <div class="ram-row">
+            <input type="range" id="ram-slider" min="1" max="64" step="1" />
+            <span id="ram-value" class="ram-value">—</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="ram-auto" checked />
+            <span class="switch-track"><span class="switch-knob"></span></span>
+            <span>Auto (usar la recomendación del manifest / nº de mods)</span>
+          </label>
+          <p id="ram-feedback" class="ram-feedback">—</p>
+        </div>
+
+        <div class="card glass form-grid">
+          <label>Java
+            <input id="set-java" placeholder="C:\...\bin\java.exe" />
+          </label>
+          <label class="switch">
+            <input type="checkbox" id="set-streamer" />
+            <span class="switch-track"><span class="switch-knob"></span></span>
+            <span>Modo streamer</span>
+          </label>
+          <label class="switch">
+            <input type="checkbox" id="set-auto" />
+            <span class="switch-track"><span class="switch-knob"></span></span>
+            <span>Actualizaciones automaticas</span>
+          </label>
+          <button class="btn primary" id="btn-save-settings">Guardar</button>
+        </div>
+
+        <div class="card glass">
+          <h2>Modo antilag</h2>
+          <p class="muted">Túnel Cloudflare WARP que cubre solo la conexión de Minecraft</p>
+          <label>
+            <input id="antilag-host" placeholder="ej. play.miservidor.com o 203.0.113.10" />
+          </label>
+          <div class="row">
+            <button class="btn primary" id="btn-antilag-install">Instalar modo antilag</button>
+            <label class="switch">
+              <input type="checkbox" id="antilag-enable" />
+              <span class="switch-track"><span class="switch-knob"></span></span>
+              <span>Activar al jugar</span>
+            </label>
+          </div>
+          <p id="antilag-status" class="status"></p>
+          <p id="antilag-hint" class="status"></p>
+        </div>
+
+        <div class="card glass">
+          <h2>Backups / Rollback</h2>
+          <p class="muted">Cada actualización crea un backup antes de aplicar cambios.</p>
+          <div class="form-grid">
+            <select id="rb-instance"></select>
+            <select id="rb-revision"></select>
+            <button class="btn danger" id="btn-rollback">Restaurar revisión</button>
+          </div>
+        </div>
+        <p id="settings-status" class="status"></p>
+      </section>
+
+      
+      <section id="page-console" class="page">
+        <h1>Consola</h1>
+        <div class="card glass">
+          <div class="row">
+            <button class="btn primary" id="btn-launch">Jugar</button>
+            <button class="btn danger" id="btn-kill">Detener</button>
+            <button class="btn" id="btn-copy-console">Copiar consola</button>
+            <button class="btn" id="btn-clear-console">Limpiar</button>
+            <span id="game-state" class="status"></span>
+          </div>
+        </div>
+        <pre id="console" class="console"></pre>
+      </section>
+    </main>
+  </div>
+
+  <footer class="app-footer">
+    <a href="https://nexuscreatorsjr.pages.dev/" target="_blank" rel="noopener">By Nexus Creators</a>
+  </footer>
+
+  <div id="update-chip" class="update-chip">comprobando versión…</div>
+
+  <script src="main.js"></script>
+</body>
+</html>
