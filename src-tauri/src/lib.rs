@@ -390,7 +390,7 @@ async fn launch_game(
         }
         selected
     };
-    launch::launch_minecraft(app, &name, &java_path, account)
+    launch::launch_minecraft(app, &name, &java_path, account).await
 }
 
 #[tauri::command]

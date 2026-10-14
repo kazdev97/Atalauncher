@@ -401,9 +401,15 @@ pub async fn install_fabric(
     fs::create_dir_all(&dir).map_err(|e| format!("crear dir fabric: {e}"))?;
     fs::write(dir.join(format!("{id}.json")), &text).map_err(|e| format!("guardar perfil fabric: {e}"))?;
     if let Some(libs) = profile.get("libraries").and_then(|l| l.as_array()) {
-        for lib in libs {
-            let name = lib.get("name").and_then(|n| n.as_str()).unwrap_or("");
-            if name.starts_with("net.fabricmc:fabric-loader") {
+        let n = libs.len().max(1);
+        for (i, lib) in libs.iter().enumerate() {
+            if !rules_allow(lib) {
+                continue;
+            }
+            let name = lib.get("name").and_then(|x| x.as_str()).unwrap_or("");
+            let is_loader = name.starts_with("net.fabricmc:fabric-loader")
+                || name.starts_with("org.quiltmc:quilt-loader");
+            if is_loader {
                 if let Some(dl) = lib.get("downloads").and_then(|d| d.get("artifact").and_then(|a| a.get("url")).and_then(|u| u.as_str())) {
                     let jar = dir.join(format!("{id}.jar"));
                     if !jar.exists() {
@@ -412,6 +418,39 @@ pub async fn install_fabric(
                     }
                 }
             }
+            throttle.emit(
+                72 + 10 * (i as u32) / (n as u32),
+                format!("Descargando librerías fabric... {}/{}", i + 1, n),
+            );
+            let _ = download_library(&client, lib, &instance_dir.join("libraries")).await;
+        }
+        // Verificación: sin estas librerías el juego no arranca (ClassNotFound).
+        // Mejor fallar la instalación aquí con mensaje claro que un juego roto.
+        let libs_base = instance_dir.join("libraries");
+        let mut missing: Vec<String> = Vec::new();
+        for lib in libs {
+            if !rules_allow(lib) {
+                continue;
+            }
+            let name = lib.get("name").and_then(|x| x.as_str()).unwrap_or("");
+            let rel = lib
+                .get("downloads")
+                .and_then(|d| d.get("artifact"))
+                .and_then(|a| a.get("path"))
+                .and_then(|p| p.as_str())
+                .map(PathBuf::from)
+                .or_else(|| maven_path_from_name(name));
+            if let Some(rel) = rel {
+                if !libs_base.join(&rel).exists() {
+                    missing.push(name.to_string());
+                }
+            }
+        }
+        if !missing.is_empty() {
+            return Err(format!(
+                "no se pudieron descargar las librerías de fabric ({}); revisa tu conexión e inténtalo de nuevo",
+                missing.join(", ")
+            ));
         }
     }
     throttle.emit(85, "Loader fabric instalado".to_string());

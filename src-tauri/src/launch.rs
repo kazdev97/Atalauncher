@@ -404,6 +404,33 @@ pub struct LogLine {
     pub stream: String, // stdout | stderr
 }
 
+/// Re-descarga los archivos de lanzamiento que falten (p. ej. si el antivirus
+/// eliminó el jar del loader después de instalar). Solo repara, no reinstala todo.
+async fn repair_launch_files(
+    instance_dir: &Path,
+    meta: &crate::instances::InstanceMeta,
+) -> Result<(), String> {
+    let mut noop = |_: u32, _: String| {};
+    let progress: &mut crate::installer::InstallProgress<'_> = &mut noop;
+    let loader = meta.loader.to_lowercase();
+    if (loader.contains("fabric") || loader.contains("quilt"))
+        && !meta.loader_version.trim().is_empty()
+    {
+        crate::installer::install_fabric(
+            instance_dir,
+            &meta.game_version,
+            meta.loader_version.trim(),
+            progress,
+        )
+        .await
+        .map(|_| ())
+    } else {
+        crate::installer::install_game(instance_dir, &meta.game_version, progress)
+            .await
+            .map(|_| ())
+    }
+}
+
 fn log_launch(msg: &str) {
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
     let line = format!("[{now}] [launch] {msg}");
@@ -491,7 +518,7 @@ fn validate_launch_files(
     ));
     Ok(())
 }
-pub fn launch_minecraft(
+pub async fn launch_minecraft(
     app: AppHandle,
     instance_name: &str,
     java_path: &str,
@@ -510,15 +537,43 @@ pub fn launch_minecraft(
             .unwrap_or_else(|| meta.game_version.clone())
     };
 
-    let resolved = resolve_version(&instance_dir, &version_id)?;
-    validate_launch_files(
+    let mut resolved = resolve_version(&instance_dir, &version_id)?;
+    if let Err(first_err) = validate_launch_files(
         &app,
         instance_name,
         &instance_dir,
         &version_id,
         &meta.loader,
         &resolved,
-    )?;
+    ) {
+        // Auto-reparación: descarga lo que falte y reintenta una sola vez.
+        let _ = app.emit(
+            "launch/line",
+            LogLine {
+                line: "[info] Faltan archivos de la instalación, descargándolos de nuevo..."
+                    .to_string(),
+                stream: "stdout".to_string(),
+            },
+        );
+        log_launch(&format!("reparando '{instance_name}' tras: {first_err}"));
+        match repair_launch_files(&instance_dir, &meta).await {
+            Ok(()) => {
+                resolved = resolve_version(&instance_dir, &version_id)?;
+                validate_launch_files(
+                    &app,
+                    instance_name,
+                    &instance_dir,
+                    &version_id,
+                    &meta.loader,
+                    &resolved,
+                )?;
+            }
+            Err(e) => {
+                log_launch(&format!("reparación fallida de '{instance_name}': {e}"));
+                return Err(first_err);
+            }
+        }
+    }
     let (ram_min_mb, ram_max_mb) = crate::jvm::effective_max_ram(&instance_dir);
     let command = build_launch_command(
         java_path,
