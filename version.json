@@ -1,5 +1,5 @@
 {
-  "version": "0.1.4",
-  "notes": "El launcher descarga las librerias de Fabric que faltaban y se auto-repara al lanzar si el antivirus elimino algun archivo.",
+  "version": "0.1.5",
+  "notes": "Corrección del error al lanzar Fabric (no requiere jar inexistente en versions) y descarga de librerías desde maven.fabricmc.net.",
   "url": "https://raw.githubusercontent.com/kazdev97/Atalauncher/main/builds/atalauncher.exe"
 }

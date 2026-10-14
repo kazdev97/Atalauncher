@@ -52,20 +52,7 @@ fn resolve_libraries(json: &serde_json::Value) -> Vec<LibraryEntry> {
                 .and_then(|a| a.get("path"))
                 .and_then(|p| p.as_str())
                 .map(String::from)
-                .or_else(|| {
-                    let parts: Vec<&str> = name.splitn(3, ':').collect();
-                    if parts.len() < 3 {
-                        return None;
-                    }
-                    Some(format!(
-                        "{}/{}/{}/{}-{}.jar",
-                        parts[0].replace('.', "/"),
-                        parts[1],
-                        parts[2],
-                        parts[1],
-                        parts[2]
-                    ))
-                });
+                .or_else(|| crate::installer::maven_rel_path_str(name));
             if let Some(p) = path {
                 out.push(LibraryEntry { path: p });
             }
@@ -254,7 +241,7 @@ fn build_classpath(resolved: &ResolvedVersion, instance_dir: &Path) -> String {
     let mut cp_paths = Vec::new();
     let libs_base = instance_dir.join("libraries");
     for lib in &resolved.libraries {
-        let full = libs_base.join(&lib.path);
+        let full = libs_base.join(Path::new(&lib.path));
         if full.exists() {
             cp_paths.push(full.to_string_lossy().to_string());
         }
@@ -404,8 +391,7 @@ pub struct LogLine {
     pub stream: String, // stdout | stderr
 }
 
-/// Re-descarga los archivos de lanzamiento que falten (p. ej. si el antivirus
-/// eliminó el jar del loader después de instalar). Solo repara, no reinstala todo.
+/// Re-descarga los archivos de lanzamiento que falten (p. ej. si se eliminó algún archivo o la descarga quedó incompleta).
 async fn repair_launch_files(
     instance_dir: &Path,
     meta: &crate::instances::InstanceMeta,
@@ -413,22 +399,41 @@ async fn repair_launch_files(
     let mut noop = |_: u32, _: String| {};
     let progress: &mut crate::installer::InstallProgress<'_> = &mut noop;
     let loader = meta.loader.to_lowercase();
-    if (loader.contains("fabric") || loader.contains("quilt"))
-        && !meta.loader_version.trim().is_empty()
-    {
-        crate::installer::install_fabric(
-            instance_dir,
-            &meta.game_version,
-            meta.loader_version.trim(),
-            progress,
-        )
-        .await
-        .map(|_| ())
-    } else {
-        crate::installer::install_game(instance_dir, &meta.game_version, progress)
-            .await
-            .map(|_| ())
+    let mut loader_version = meta.loader_version.trim().to_string();
+    if loader_version.is_empty() {
+        if let Some(v) = meta.version_id.strip_prefix("fabric-loader-") {
+            if let Some(first_part) = v.split('-').next() {
+                loader_version = first_part.to_string();
+            }
+        }
     }
+    // Asegurar juego base
+    crate::installer::install_game(instance_dir, &meta.game_version, progress)
+        .await
+        .map(|_| ())?;
+
+    if loader.contains("fabric") || loader.contains("quilt") {
+        let lv = if loader_version.is_empty() {
+            crate::installer::get_fabric_loaders()
+                .await
+                .ok()
+                .and_then(|list| list.into_iter().next())
+                .unwrap_or_default()
+        } else {
+            loader_version
+        };
+        if !lv.is_empty() {
+            crate::installer::install_fabric(
+                instance_dir,
+                &meta.game_version,
+                &lv,
+                progress,
+            )
+            .await
+            .map(|_| ())?;
+        }
+    }
+    Ok(())
 }
 
 fn log_launch(msg: &str) {
@@ -461,18 +466,7 @@ fn validate_launch_files(
     let is_fabric_like = loader_lc.contains("fabric")
         || loader_lc.contains("quilt")
         || resolved.main_class.to_lowercase().contains("knot");
-    if is_fabric_like && resolved.extra_jars.is_empty() {
-        let expected = instance_dir
-            .join("versions")
-            .join(version_id)
-            .join(format!("{version_id}.jar"))
-            .to_string_lossy()
-            .to_string();
-        log_launch(&format!(
-            "ERROR: '{instance_name}' sin jar del loader (falta {expected})"
-        ));
-        return Err(format!("Falta el archivo del loader fabric ({expected}): la descarga quedó incompleta. Elimina la instancia e instálala de nuevo con conexión estable."));
-    }
+
     let is_forge_like = resolved.main_class.contains("bootstraplauncher")
         || resolved.main_class.contains("modlauncher")
         || resolved.id.to_lowercase().contains("forge");
@@ -490,9 +484,26 @@ fn validate_launch_files(
     let missing: Vec<&str> = resolved
         .libraries
         .iter()
-        .filter(|lib| !libs_base.join(&lib.path).exists())
+        .filter(|lib| !libs_base.join(Path::new(&lib.path)).exists())
         .map(|lib| lib.path.as_str())
         .collect();
+
+    if is_fabric_like {
+        let missing_loader = missing
+            .iter()
+            .find(|p| p.contains("fabric-loader") || p.contains("quilt-loader"));
+        if let Some(loader_rel) = missing_loader {
+            let full = libs_base.join(Path::new(loader_rel));
+            log_launch(&format!(
+                "ERROR: '{instance_name}' sin librería del loader fabric (falta {})",
+                full.to_string_lossy()
+            ));
+            return Err(format!(
+                "Falta el archivo del loader fabric ({}): la descarga quedó incompleta.",
+                full.to_string_lossy()
+            ));
+        }
+    }
     if !missing.is_empty() {
         log_launch(&format!(
             "AVISO: '{instance_name}' tiene {} librerías sin descargar, ej: {}",

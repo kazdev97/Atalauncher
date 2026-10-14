@@ -135,7 +135,7 @@ async fn download_asset_index(
     Ok(())
 }
 
-fn maven_path_from_name(name: &str) -> Option<PathBuf> {
+pub fn maven_rel_path_str(name: &str) -> Option<String> {
     let parts: Vec<&str> = name.splitn(3, ':').collect();
     if parts.len() < 3 {
         return None;
@@ -146,26 +146,26 @@ fn maven_path_from_name(name: &str) -> Option<PathBuf> {
     if ver.contains(':') {
         let vp: Vec<&str> = ver.splitn(2, ':').collect();
         let (ver_only, classifier) = (vp[0], vp[1]);
-        return Some(
-            PathBuf::from(group).join(artifact).join(ver_only).join(format!(
-                "{artifact}-{ver_only}-{classifier}.jar"
-            )),
-        );
+        return Some(format!(
+            "{group}/{artifact}/{ver_only}/{artifact}-{ver_only}-{classifier}.jar"
+        ));
     }
-    Some(PathBuf::from(group).join(artifact).join(ver).join(format!("{artifact}-{ver}.jar")))
+    Some(format!(
+        "{group}/{artifact}/{ver}/{artifact}-{ver}.jar"
+    ))
 }
 
 async fn download_library(client: &reqwest::Client, lib: &Value, base: &Path) -> Result<(), String> {
     let name = lib.get("name").and_then(|n| n.as_str()).unwrap_or("");
     let artifact = lib.get("downloads").and_then(|d| d.get("artifact"));
     let url = artifact.and_then(|a| a.get("url")).and_then(|u| u.as_str()).unwrap_or("");
-    let rel = artifact
+    let rel_str = artifact
         .and_then(|a| a.get("path"))
         .and_then(|p| p.as_str())
-        .map(PathBuf::from)
-        .or_else(|| maven_path_from_name(name));
-    if let Some(rel) = rel {
-        let dest = base.join(&rel);
+        .map(String::from)
+        .or_else(|| maven_rel_path_str(name));
+    if let Some(rel) = rel_str {
+        let dest = base.join(Path::new(&rel));
         if dest.exists() {
             return Ok(());
         }
@@ -176,19 +176,22 @@ async fn download_library(client: &reqwest::Client, lib: &Value, base: &Path) ->
         if !url.is_empty() {
             sources.push(url.to_string());
         }
-        if !name.is_empty() {
-            if let Some(rel2) = maven_path_from_name(name) {
-                let p = rel2.to_string_lossy().to_string();
-                for host in [
-                    "https://libraries.minecraft.net/",
-                    "https://repo1.maven.org/maven2/",
-                    "https://maven.minecraftforge.net/",
-                    "https://maven.neoforged.net/releases/",
-                ] {
-                    sources.push(format!("{host}{p}"));
-                }
+        if let Some(custom_maven) = lib.get("url").and_then(|u| u.as_str()) {
+            if !custom_maven.is_empty() {
+                let base_url = custom_maven.trim_end_matches('/');
+                sources.push(format!("{base_url}/{rel}"));
             }
         }
+        for host in [
+            "https://maven.fabricmc.net/",
+            "https://libraries.minecraft.net/",
+            "https://repo1.maven.org/maven2/",
+            "https://maven.minecraftforge.net/",
+            "https://maven.neoforged.net/releases/",
+        ] {
+            sources.push(format!("{host}{rel}"));
+        }
+        sources.dedup();
         for src in sources {
             if download_file(client, &src, &dest, &mut |_, _| {}).await.is_ok() {
                 return Ok(());
@@ -406,18 +409,6 @@ pub async fn install_fabric(
             if !rules_allow(lib) {
                 continue;
             }
-            let name = lib.get("name").and_then(|x| x.as_str()).unwrap_or("");
-            let is_loader = name.starts_with("net.fabricmc:fabric-loader")
-                || name.starts_with("org.quiltmc:quilt-loader");
-            if is_loader {
-                if let Some(dl) = lib.get("downloads").and_then(|d| d.get("artifact").and_then(|a| a.get("url")).and_then(|u| u.as_str())) {
-                    let jar = dir.join(format!("{id}.jar"));
-                    if !jar.exists() {
-                        download_file(&client, dl, &jar, &mut |_, _| {}).await
-                            .map_err(|e| format!("descargar loader fabric: {e}"))?;
-                    }
-                }
-            }
             throttle.emit(
                 72 + 10 * (i as u32) / (n as u32),
                 format!("Descargando librerías fabric... {}/{}", i + 1, n),
@@ -438,10 +429,10 @@ pub async fn install_fabric(
                 .and_then(|d| d.get("artifact"))
                 .and_then(|a| a.get("path"))
                 .and_then(|p| p.as_str())
-                .map(PathBuf::from)
-                .or_else(|| maven_path_from_name(name));
+                .map(String::from)
+                .or_else(|| maven_rel_path_str(name));
             if let Some(rel) = rel {
-                if !libs_base.join(&rel).exists() {
+                if !libs_base.join(Path::new(&rel)).exists() {
                     missing.push(name.to_string());
                 }
             }
@@ -735,6 +726,11 @@ pub async fn install_instance(
     let loader = meta.loader.to_lowercase();
     let loader_version = if meta.loader_version.trim().is_empty() {
         match loader.as_str() {
+            "fabric" => get_fabric_loaders()
+                .await?
+                .into_iter()
+                .next()
+                .unwrap_or_default(),
             "forge" => get_forge_versions(&meta.game_version)
                 .await?
                 .into_iter()
