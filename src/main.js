@@ -1,7 +1,11 @@
 const DEMO = !window.__TAURI__;
 
 const $ = (id) => document.getElementById(id);
-const status = (id, msg) => { $(id).textContent = msg || ""; };
+const status = (id, msg) => { const el = $(id); if (el) el.textContent = msg || ""; };
+function showPage(page) {
+  const btn = document.querySelector(`.nav-item[data-page="${page}"]`);
+  if (btn) btn.click();
+}
 const demoStore = { accounts: [], selected_id: "", mode: "offline", offline_username: "Juanito67" };
 const demoInstances = [
   { name: "Vanilla 1.21.4", version_id: "1.21.4", loader: "vanilla", game_version: "1.21.4", loader_version: "", source: "local", manifest_url: "", manifest_type: "", server_version: "", actualizacion: true, installed: true, instance_dir: "C:\\Documentos\\Atalauncher\\instancias\\Vanilla 1.21.4", last_launched: "2026-09-14 18:00", session_based: false, remote: false },
@@ -814,6 +818,8 @@ $("btn-rollback").addEventListener("click", async () => {
   } catch (e) { status("settings-status", "Error: " + e.message); }
 });
 async function launchInstance(inst) {
+  showPage("console");
+  status("game-state", "Preparando lanzamiento de '" + inst.name + "'...");
   const settings = await call("settings_get", {}).catch(() => null) || {};
   let javaPath = (settings.java_path_override || "").trim();
   if (!javaPath) {

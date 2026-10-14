@@ -204,8 +204,9 @@ pub async fn fetch_manifest(url_or_path: &str) -> Result<Manifest, String> {
 }
 
 pub fn parse_manifest(raw: &str) -> Result<Manifest, String> {
+    let cleaned = raw.trim().trim_start_matches('\u{FEFF}');
     let manifest: Manifest =
-        serde_json::from_str(raw).map_err(|e| format!("manifest JSON inválido: {e}"))?;
+        serde_json::from_str(cleaned).map_err(|e| format!("manifest JSON inválido: {e}"))?;
     if !manifest.format.is_empty() && manifest.format != MANIFEST_FORMAT {
         return Err(format!("Formato de manifest no soportado: {}", manifest.format));
     }

@@ -1,5 +1,5 @@
 {
-  "version": "0.1.1",
-  "notes": "Sesión: renueva token al lanzar, relogin, consola y RAM 6-8 GB.",
+  "version": "0.1.2",
+  "notes": "Jugar muestra la Consola al lanzar (antes el mensaje quedaba oculto en otra pestana). Actualizaciones ya no se marcan tras instalar.",
   "url": "https://raw.githubusercontent.com/kazdev97/Atalauncher/main/builds/atalauncher.exe"
 }
