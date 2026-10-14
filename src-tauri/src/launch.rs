@@ -2,6 +2,8 @@ use crate::config::instances_dir;
 use serde::Serialize;
 use std::collections::HashSet;
 use std::fs;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
@@ -401,6 +403,94 @@ pub struct LogLine {
     pub line: String,
     pub stream: String, // stdout | stderr
 }
+
+fn log_launch(msg: &str) {
+    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+    let line = format!("[{now}] [launch] {msg}");
+    println!("{line}");
+    let log_path = crate::config::launcher_log_file();
+    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&log_path) {
+        let _ = writeln!(f, "{line}");
+    }
+}
+
+/// Comprueba que los archivos imprescindibles existen antes de invocar a Java.
+/// Sin esto, un jar ausente produce un ClassNotFoundException críptico en la consola.
+fn validate_launch_files(
+    app: &AppHandle,
+    instance_name: &str,
+    instance_dir: &Path,
+    version_id: &str,
+    loader: &str,
+    resolved: &ResolvedVersion,
+) -> Result<(), String> {
+    if resolved.main_class.trim().is_empty() {
+        log_launch(&format!(
+            "ERROR: '{instance_name}' sin clase principal (version_id='{version_id}')"
+        ));
+        return Err("No se pudo determinar la clase principal del juego: la instalación parece incompleta. Elimina la instancia e instálala de nuevo.".to_string());
+    }
+    let loader_lc = loader.to_lowercase();
+    let is_fabric_like = loader_lc.contains("fabric")
+        || loader_lc.contains("quilt")
+        || resolved.main_class.to_lowercase().contains("knot");
+    if is_fabric_like && resolved.extra_jars.is_empty() {
+        let expected = instance_dir
+            .join("versions")
+            .join(version_id)
+            .join(format!("{version_id}.jar"))
+            .to_string_lossy()
+            .to_string();
+        log_launch(&format!(
+            "ERROR: '{instance_name}' sin jar del loader (falta {expected})"
+        ));
+        return Err(format!("Falta el archivo del loader fabric ({expected}): la descarga quedó incompleta. Elimina la instancia e instálala de nuevo con conexión estable."));
+    }
+    let is_forge_like = resolved.main_class.contains("bootstraplauncher")
+        || resolved.main_class.contains("modlauncher")
+        || resolved.id.to_lowercase().contains("forge");
+    if !is_forge_like
+        && !resolved.client_jar_path.is_empty()
+        && !Path::new(&resolved.client_jar_path).exists()
+    {
+        log_launch(&format!(
+            "ERROR: '{instance_name}' sin client jar (falta {})",
+            resolved.client_jar_path
+        ));
+        return Err("Falta el archivo principal de Minecraft (client jar): la instalación quedó incompleta. Elimina la instancia e instálala de nuevo.".to_string());
+    }
+    let libs_base = instance_dir.join("libraries");
+    let missing: Vec<&str> = resolved
+        .libraries
+        .iter()
+        .filter(|lib| !libs_base.join(&lib.path).exists())
+        .map(|lib| lib.path.as_str())
+        .collect();
+    if !missing.is_empty() {
+        log_launch(&format!(
+            "AVISO: '{instance_name}' tiene {} librerías sin descargar, ej: {}",
+            missing.len(),
+            missing.iter().take(3).cloned().collect::<Vec<_>>().join(", ")
+        ));
+        let _ = app.emit(
+            "launch/line",
+            LogLine {
+                line: format!(
+                    "[aviso] Faltan {} librerías por descargar; si el juego falla, elimina la instancia e instálala de nuevo.",
+                    missing.len()
+                ),
+                stream: "stderr".to_string(),
+            },
+        );
+    }
+    log_launch(&format!(
+        "lanzando '{instance_name}' version_id='{version_id}' main='{}' libs={} faltan={}",
+        resolved.main_class,
+        resolved.libraries.len(),
+        missing.len()
+    ));
+    Ok(())
+}
 pub fn launch_minecraft(
     app: AppHandle,
     instance_name: &str,
@@ -421,6 +511,14 @@ pub fn launch_minecraft(
     };
 
     let resolved = resolve_version(&instance_dir, &version_id)?;
+    validate_launch_files(
+        &app,
+        instance_name,
+        &instance_dir,
+        &version_id,
+        &meta.loader,
+        &resolved,
+    )?;
     let (ram_min_mb, ram_max_mb) = crate::jvm::effective_max_ram(&instance_dir);
     let command = build_launch_command(
         java_path,

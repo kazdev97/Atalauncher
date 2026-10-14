@@ -1,5 +1,5 @@
 {
-  "version": "0.1.2",
-  "notes": "Jugar muestra la Consola al lanzar (antes el mensaje quedaba oculto en otra pestana). Actualizaciones ya no se marcan tras instalar.",
+  "version": "0.1.3",
+  "notes": "El lanzador comprueba los archivos antes de arrancar y explica en claro que falta si la instalacion quedo incompleta.",
   "url": "https://raw.githubusercontent.com/kazdev97/Atalauncher/main/builds/atalauncher.exe"
 }
