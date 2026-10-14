@@ -550,7 +550,7 @@ pub async fn launch_minecraft(
         let _ = app.emit(
             "launch/line",
             LogLine {
-                line: "[info] Faltan archivos de la instalación, descargándolos de nuevo..."
+                line: "[info] Faltan archivos de la instalación, descargando faltantes..."
                     .to_string(),
                 stream: "stdout".to_string(),
             },
