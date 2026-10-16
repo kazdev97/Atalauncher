@@ -1,5 +1,5 @@
 {
-  "version": "0.1.6",
-  "notes": "Descargas en paralelo (8 a la vez): instancias, assets, librerias y archivos del pack mucho mas rapidos.",
+  "version": "0.1.5",
+  "notes": "Reversión temporal a 0.1.5: el exe publicado aún es 0.1.5 y causaba un bucle de auto-actualización. Se republicará 0.1.6 con el binario nuevo.",
   "url": "https://raw.githubusercontent.com/kazdev97/Atalauncher/main/builds/atalauncher.exe"
 }
