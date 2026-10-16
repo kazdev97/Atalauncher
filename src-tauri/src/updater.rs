@@ -74,6 +74,17 @@ pub async fn apply_update() -> Result<(), String> {
         .await
         .map_err(|e| format!("descargar la actualización: {e}"))?;
     let cur_exe = std::env::current_exe().map_err(|e| format!("localizar el exe actual: {e}"))?;
+    // Guardia anti-bucle: si el binario descargado es idéntico al actual
+    // (p. ej. version.json apunta al exe viejo), no reiniciar.
+    if let (Ok(a), Ok(b)) = (
+        crate::downloader::sha256_file(&new_exe),
+        crate::downloader::sha256_file(&cur_exe),
+    ) {
+        if a == b {
+            fs::remove_file(&new_exe).ok();
+            return Err("La actualización descargada es idéntica a la versión actual; se omite el reinicio.".to_string());
+        }
+    }
     let cur_str = cur_exe.to_string_lossy().replace('\'', "''");
     let new_str = new_exe.to_string_lossy().replace('\'', "''");
     let ps = format!(
