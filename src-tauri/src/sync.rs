@@ -1,6 +1,6 @@
 
 use crate::config::instances_dir;
-use crate::downloader::{download_file, sha256_file, http_client};
+use crate::downloader::{download_file, download_many, sha256_file, http_client, DlJob, MAX_CONCURRENT_DOWNLOADS};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
@@ -627,6 +627,8 @@ pub async fn apply_updates(
     } else {
         let client = http_client();
         on_status("Descargando archivos individuales...".to_string());
+        let mut jobs: Vec<DlJob> = Vec::new();
+        let mut was_replace: std::collections::HashMap<String, bool> = Default::default();
         for f in &manifest.files {
             if !is_managed(&f.path, &managed) || protected.contains(&f.path) {
                 continue;
@@ -639,7 +641,6 @@ pub async fn apply_updates(
                 }
             };
             let dest = instance_dir.join(&f.path);
-            let is_replace = dest.exists();
             let changed = local_has_changed(instance_dir, &f.path, &f.sha256);
             if !changed && dest.exists() {
                 continue;
@@ -647,17 +648,24 @@ pub async fn apply_updates(
             if let Some(parent) = dest.parent() {
                 fs::create_dir_all(parent).ok();
             }
-            match download_file(&client, &url, &dest, &mut |_, _| {}).await {
+            was_replace.insert(f.path.clone(), dest.exists());
+            jobs.push(DlJob { key: f.path.clone(), urls: vec![url], dest });
+        }
+        let total_jobs = jobs.len().max(1);
+        download_many(&client, jobs, MAX_CONCURRENT_DOWNLOADS, &mut |done, _, outcome| {
+            on_status(format!("Descargando archivo {done}/{total_jobs}..."));
+            match outcome.result {
                 Ok(()) => {
-                    if is_replace {
-                        replaced.push(f.path.clone());
+                    if was_replace.get(&outcome.key).copied().unwrap_or(false) {
+                        replaced.push(outcome.key);
                     } else {
-                        downloaded.push(f.path.clone());
+                        downloaded.push(outcome.key);
                     }
                 }
-                Err(e) => errors.push(format!("{}: {e}", f.path)),
+                Err(e) => errors.push(format!("{}: {e}", outcome.key)),
             }
-        }
+        })
+        .await;
     }
     let mut removed = Vec::new();
     for path in &diff.extra {
@@ -1053,39 +1061,51 @@ pub async fn git_apply_dir(
     let mut removed = Vec::new();
     let mut errors = Vec::new();
     let client = http_client();
-    let total_dl = (pend.missing.len() + pend.different.len()).max(1);
-    let mut done = 0usize;
+    let mut jobs: Vec<DlJob> = Vec::new();
+    let mut was_replace: std::collections::HashMap<String, bool> = Default::default();
     for rel in pend.missing.iter().chain(pend.different.iter()) {
         if is_git_protected(rel, &protected) || rel.starts_with('.') {
             continue;
         }
         let dest = instance_dir.join(rel);
-        let is_replace = dest.exists();
-        let url = sync_raw_url(&ctx, rel);
-        done += 1;
+        was_replace.insert(rel.clone(), dest.exists());
+        jobs.push(DlJob { key: rel.clone(), urls: vec![sync_raw_url(&ctx, rel)], dest });
+    }
+    let total_dl = jobs.len().max(1);
+    let mut done = 0usize;
+    let mut lfs_retry: Vec<String> = Vec::new();
+    download_many(&client, jobs, MAX_CONCURRENT_DOWNLOADS, &mut |d, _, outcome| {
+        done = d;
         on_progress(
             85 + 14 * (done as u32) / (total_dl as u32),
             format!("Descargando pack {done}/{total_dl}"),
         );
-        on_status(format!("Descargando {rel}..."));
-        match crate::downloader::download_file(&client, &url, &dest, &mut |_, _| {}).await {
+        on_status(format!("Descargando {}...", outcome.key));
+        let rel = outcome.key.clone();
+        match outcome.result {
             Ok(()) => {
-                if is_lfs_pointer(&dest) {
-                    let media = lfs_media_url(&ctx, rel);
-                    match crate::downloader::download_file(&client, &media, &dest, &mut |_, _| {}).await {
-                        Ok(()) => {
-                            if is_replace {
-                                replaced.push(rel.clone())
-                            } else {
-                                downloaded.push(rel.clone())
-                            }
-                        }
-                        Err(e) => errors.push(format!("{rel}: {e}")),
-                    }
-                } else if is_replace {
-                    replaced.push(rel.clone())
+                // Los archivos LFS llegan como puntero; se reintentan contra media.githubusercontent.com abajo
+                if is_lfs_pointer(&outcome.dest) {
+                    lfs_retry.push(rel);
+                } else if was_replace.get(&rel).copied().unwrap_or(false) {
+                    replaced.push(rel)
                 } else {
-                    downloaded.push(rel.clone())
+                    downloaded.push(rel)
+                }
+            }
+            Err(e) => errors.push(format!("{rel}: {e}")),
+        }
+    })
+    .await;
+    for rel in lfs_retry {
+        let dest = instance_dir.join(&rel);
+        let media = lfs_media_url(&ctx, &rel);
+        match crate::downloader::download_file(&client, &media, &dest, &mut |_, _| {}).await {
+            Ok(()) => {
+                if was_replace.get(&rel).copied().unwrap_or(false) {
+                    replaced.push(rel)
+                } else {
+                    downloaded.push(rel)
                 }
             }
             Err(e) => errors.push(format!("{rel}: {e}")),

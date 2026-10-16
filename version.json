@@ -1,5 +1,5 @@
 {
-  "version": "0.1.5",
-  "notes": "Corrección del error al lanzar Fabric (no requiere jar inexistente en versions) y descarga de librerías desde maven.fabricmc.net.",
+  "version": "0.1.6",
+  "notes": "Descargas en paralelo (8 a la vez): instancias, assets, librerias y archivos del pack mucho mas rapidos.",
   "url": "https://raw.githubusercontent.com/kazdev97/Atalauncher/main/builds/atalauncher.exe"
 }

@@ -3,9 +3,12 @@ use reqwest::Client;
 use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::Read;
+use std::path::PathBuf;
 use std::time::Duration;
+use tokio::io::AsyncWriteExt;
 
 pub const USER_AGENT_STRING: &str = "Atalauncher/0.1";
+pub const MAX_CONCURRENT_DOWNLOADS: usize = 8;
 
 pub fn http_client() -> Client {
     let mut headers = HeaderMap::new();
@@ -13,6 +16,9 @@ pub fn http_client() -> Client {
     Client::builder()
         .default_headers(headers)
         .connect_timeout(Duration::from_secs(20))
+        .pool_max_idle_per_host(32)
+        .pool_idle_timeout(Duration::from_secs(90))
+        .tcp_keepalive(Duration::from_secs(60))
         .build()
         .expect("fail to build reqwest client")
 }
@@ -63,22 +69,101 @@ async fn download_one(
         return Err(format!("HTTP {} para {url}", status.as_u16()));
     }
     let total = resp.content_length().unwrap_or(0);
-    let mut file = File::create(&tmp).map_err(|e| format!("crear archivo: {e}"))?;
+    let mut file = tokio::fs::File::create(&tmp)
+        .await
+        .map_err(|e| format!("crear archivo: {e}"))?;
     let mut stream = resp.bytes_stream();
     let mut written: u64 = 0;
     use futures_util::StreamExt;
     while let Some(chunk) = stream.next().await {
         let bytes = chunk.map_err(|e| format!("stream: {e}"))?;
-        std::io::Write::write_all(&mut file, &bytes).map_err(|e| format!("write: {e}"))?;
+        file.write_all(&bytes)
+            .await
+            .map_err(|e| format!("write: {e}"))?;
         written += bytes.len() as u64;
         on_progress(written, total);
     }
+    file.sync_all().await.map_err(|e| format!("sync: {e}"))?;
     drop(file);
     std::fs::rename(&tmp, dest).map_err(|e| format!("guardar archivo: {e}"))?;
     Ok(())
 }
-pub async fn get_text(client: &Client, url: &str, timeout: Duration) -> Result<String, String> {
-    let resp = client
+/// Un trabajo de descarga: prueba las urls en orden hasta que una funcione.
+#[derive(Debug, Clone)]
+pub struct DlJob {
+    pub key: String,
+    pub urls: Vec<String>,
+    pub dest: PathBuf,
+}
+
+pub struct DlOutcome {
+    pub key: String,
+    pub dest: PathBuf,
+    pub result: Result<(), String>,
+}
+
+async fn run_dl_job(c: Client, job: DlJob) -> DlOutcome {
+    let result = if job.urls.len() == 1 {
+        download_file(&c, &job.urls[0], &job.dest, &mut |_, _| {}).await
+    } else {
+        let mut last_err = String::from("sin mirrors");
+        let mut ok = false;
+        for u in &job.urls {
+            match download_one(&c, u, &job.dest, &mut |_, _| {}).await {
+                Ok(()) => {
+                    ok = true;
+                    break;
+                }
+                Err(e) => last_err = e,
+            }
+        }
+        if ok { Ok(()) } else { Err(last_err) }
+    };
+    DlOutcome { key: job.key, dest: job.dest, result }
+}
+
+/// Descarga varios archivos en paralelo (máximo `max_concurrent` a la vez).
+/// `on_done` se invoca en el hilo dueño por cada archivo terminado: (terminados, total, resultado).
+pub async fn download_many(
+    client: &Client,
+    jobs: Vec<DlJob>,
+    max_concurrent: usize,
+    on_done: &mut (dyn FnMut(usize, usize, DlOutcome) + Send),
+) {
+    let total = jobs.len();
+    if total == 0 {
+        return;
+    }
+    let max = max_concurrent.max(1);
+    let mut set = tokio::task::JoinSet::new();
+    let mut pending = jobs.into_iter();
+    for _ in 0..max {
+        let Some(job) = pending.next() else { break };
+        let c = client.clone();
+        set.spawn(async move { run_dl_job(c, job).await });
+    }
+    let mut done = 0usize;
+    while let Some(joined) = set.join_next().await {
+        done += 1;
+        match joined {
+            Ok(outcome) => on_done(done, total, outcome),
+            Err(e) => on_done(
+                done,
+                total,
+                DlOutcome {
+                    key: String::new(),
+                    dest: PathBuf::new(),
+                    result: Err(format!("tarea cancelada: {e}")),
+                },
+            ),
+        }
+        if let Some(job) = pending.next() {
+            let c = client.clone();
+            set.spawn(async move { run_dl_job(c, job).await });
+        }
+    }
+}
+pub async fn get_text(client: &Client, url: &str, timeout: Duration) -> Result<String, String> {    let resp = client
         .get(url)
         .timeout(timeout)
         .send()
