@@ -1,5 +1,5 @@
 {
-  "version": "0.1.7",
-  "notes": "Fix assetIndex: el launcher pasaba la version del juego en vez del indice real de assets, causando sonidos y menus de idioma rotos.",
+  "version": "0.1.8",
+  "notes": "El launcher ahora acepta el indice de instancias aunque su revision venga como numero, y muestra el error real si no puede consultar la fuente.",
   "url": "https://raw.githubusercontent.com/kazdev97/Atalauncher/main/builds/atalauncher.exe"
 }
