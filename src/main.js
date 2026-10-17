@@ -318,9 +318,10 @@ async function getSettings() {
 
 async function loadSource() {
   renderSourceStatus("Consultando instancias disponibles...");
+  let url = "";
   try {
     const s = await getSettings();
-    const url = (s.source_url || "").trim();
+    url = (s.source_url || "").trim();
     if (!url) {
       renderAvailable([]);
       status("instances-status", "No hay fuente configurada.");
@@ -332,7 +333,9 @@ async function loadSource() {
       ? `${list.length} instancias disponibles en la fuente.`
       : "No hay instancias disponibles en la fuente.");
   } catch (e) {
-    $("available-list").innerHTML = "";
+    const msg = (e && e.message) ? e.message : String(e);
+    renderSourceStatus("No se pudo consultar la fuente: " + msg);
+    status("instances-status", "Error al consultar " + url + ": " + msg);
   }
 }
 

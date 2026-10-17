@@ -8,6 +8,22 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 pub const MANIFEST_FORMAT: &str = "pau-manifest";
+
+/// Acepta strings, numeros o null y los normaliza a String.
+fn de_string_or_num<'de, D>(d: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize;
+    let v = serde_json::Value::deserialize(d)?;
+    Ok(match v {
+        serde_json::Value::String(s) => s,
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::Null => String::new(),
+        other => other.to_string(),
+    })
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourceInstance {
     #[serde(default)]
@@ -24,7 +40,7 @@ pub struct SourceInstance {
     pub loader_version: String,
     #[serde(default)]
     pub manifest_url: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_string_or_num")]
     pub revision: String,
     #[serde(default)]
     pub installed: bool,
@@ -68,7 +84,7 @@ pub struct ManifestFile {
 pub struct Manifest {
     #[serde(default)]
     pub format: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_string_or_num")]
     pub revision: String,
     #[serde(default)]
     pub name: String,
