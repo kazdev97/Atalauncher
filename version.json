@@ -1,5 +1,5 @@
 {
-  "version": "0.1.6",
-  "notes": "Descargas en paralelo (8 a la vez): instancias, assets, librerias y archivos del pack mucho mas rapidos. Incluye proteccion contra bucles de auto-actualizacion.",
+  "version": "0.1.7",
+  "notes": "Fix assetIndex: el launcher pasaba la version del juego en vez del indice real de assets, causando sonidos y menus de idioma rotos.",
   "url": "https://raw.githubusercontent.com/kazdev97/Atalauncher/main/builds/atalauncher.exe"
 }

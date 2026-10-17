@@ -36,6 +36,7 @@ struct ResolvedVersion {
     game_args: Vec<String>,
     client_jar_path: String,
     extra_jars: Vec<String>,
+    asset_index: String,
 }
 
 fn resolve_libraries(json: &serde_json::Value) -> Vec<LibraryEntry> {
@@ -206,6 +207,7 @@ fn resolve_version(instance_dir: &Path, version_id: &str) -> Result<ResolvedVers
         }
     }
     let versions_dir = instance_dir.join("versions");
+    let mut asset_index = String::new();
     if let Some(base) = chain.last() {
         let base_id = base.get("id").and_then(|i| i.as_str()).unwrap_or(version_id);
         client_jar_path = versions_dir
@@ -213,6 +215,19 @@ fn resolve_version(instance_dir: &Path, version_id: &str) -> Result<ResolvedVers
             .join(format!("{base_id}.jar"))
             .to_string_lossy()
             .to_string();
+        asset_index = base
+            .get("assets")
+            .and_then(|a| a.as_str())
+            .map(String::from)
+            .unwrap_or_default();
+        if asset_index.is_empty() {
+            asset_index = base
+                .get("assetIndex")
+                .and_then(|ai| ai.get("id"))
+                .and_then(|id| id.as_str())
+                .map(String::from)
+                .unwrap_or_default();
+        }
     }
     if let Some(hijo) = chain.first() {
         let id = hijo.get("id").and_then(|i| i.as_str()).unwrap_or(version_id);
@@ -234,6 +249,7 @@ fn resolve_version(instance_dir: &Path, version_id: &str) -> Result<ResolvedVers
         game_args,
         client_jar_path,
         extra_jars,
+        asset_index,
     })
 }
 
@@ -341,7 +357,7 @@ fn build_launch_command(
             if cfg!(target_os = "windows") { ";" } else { ":" },
         );
         *arg = arg.replace("${library_directory}", &libraries_dir);
-        *arg = arg.replace("${assets_index_name}", &meta.game_version);
+        *arg = arg.replace("${assets_index_name}", &resolved.asset_index);
         *arg = arg.replace("${clientid}", "Atalauncher");
         *arg = arg.replace("${auth_xuid}", "");
         *arg = arg.replace("${resolution_width}", "1280");
