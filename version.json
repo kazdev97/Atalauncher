@@ -1,5 +1,5 @@
 {
-  "version": "0.2.0",
-  "notes": "El texture pack del pack se activa automaticamente al jugar (se anade a options.txt antes de arrancar el juego).",
+  "version": "0.2.1",
+  "notes": "Se verifica que el Java del launcher este completo (librerias nativas de AWT); si falta algo se reinstala solo. Arregla el crash de FancyMenu por awt.dll eliminado (antivirus).",
   "url": "https://raw.githubusercontent.com/kazdev97/Atalauncher/main/builds/atalauncher.exe"
 }

@@ -177,13 +177,25 @@ pub fn validate_java_executable(exe: &Path, min_major: u32) -> Result<u32, Strin
     }
     Ok(major)
 }
+/// Las librerias nativas de AWT no se cargan con `java -version`, asi que un
+/// runtime incompleto (p.ej. awt.dll borrado por el antivirus) pasa la
+/// validacion de version pero crashea al iniciar el juego.
+pub fn runtime_is_complete(root: &Path) -> bool {
+    if !cfg!(target_os = "windows") {
+        return true;
+    }
+    let bin = root.join("bin");
+    ["awt.dll", "java.dll"]
+        .iter()
+        .all(|name| bin.join(name).exists())
+}
 pub fn find_bundled_java(major: u32) -> Option<PathBuf> {
     let root = runtime_dir().join(format!("jdk-{major}"));
     if !root.exists() {
         return None;
     }
     let exe = java_executable_in_dir(&root)?;
-    if validate_java_executable(&exe, major).is_ok() {
+    if validate_java_executable(&exe, major).is_ok() && runtime_is_complete(&root) {
         return Some(exe);
     }
     None
@@ -253,6 +265,9 @@ pub fn find_all_bundled_java() -> Vec<JavaInfo> {
             }
             if let Some(exe) = java_executable_in_dir(&dir) {
                 if let Ok(major) = validate_java_executable(&exe, 8) {
+                    if !runtime_is_complete(&dir) {
+                        continue;
+                    }
                     found.push(JavaInfo {
                         path: exe.to_string_lossy().to_string(),
                         major,
@@ -346,6 +361,10 @@ pub async fn install_adoptium(
         .ok_or_else(|| "no se encontró java tras extraer Adoptium".to_string())?;
     let _actual = validate_java_executable(&exe, major)
         .map_err(|e| format!("JDK descargado inválido: {e}"))?;
+    if !runtime_is_complete(&target_root) {
+        fs::remove_dir_all(&target_root).ok();
+        return Err("El JDK descargado está incompleto (faltan librerías nativas)".to_string());
+    }
     on_status(format!("Java {major} listo en {}", target_root.display()));
     Ok(exe)
 }
@@ -356,6 +375,11 @@ pub async fn ensure_java(
 ) -> Result<PathBuf, String> {
     let required = resolve_java_major_online(mc_version, instance_dir).await;
     on_status(format!("Buscando Java {required}..."));
+    let bundled_root = runtime_dir().join(format!("jdk-{required}"));
+    if bundled_root.exists() && !runtime_is_complete(&bundled_root) {
+        on_status(format!("Java {required} dañado, reinstalando..."));
+        fs::remove_dir_all(&bundled_root).ok();
+    }
     if let Some(exe) = find_bundled_java(required) {
         return Ok(exe);
     }
