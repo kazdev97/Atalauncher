@@ -1,5 +1,5 @@
 {
-  "version": "0.1.8",
-  "notes": "El launcher ahora acepta el indice de instancias aunque su revision venga como numero, y muestra el error real si no puede consultar la fuente.",
+  "version": "0.1.9",
+  "notes": "Los archivos grandes (como los binarios de watermedia, 137MB) se descargan sin corte por tiempo; antes se abortaban a los 5 minutos.",
   "url": "https://raw.githubusercontent.com/kazdev97/Atalauncher/main/builds/atalauncher.exe"
 }
