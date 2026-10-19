@@ -452,7 +452,7 @@ async fn repair_launch_files(
     Ok(())
 }
 
-fn log_launch(msg: &str) {
+pub(crate) fn log_launch(msg: &str) {
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
     let line = format!("[{now}] [launch] {msg}");
     println!("{line}");

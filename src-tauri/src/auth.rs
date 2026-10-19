@@ -337,6 +337,8 @@ pub async fn start_login_flow(_app: tauri::AppHandle) -> Result<Account, String>
     }
     let account = login(CLIENT_ID).await?;
     store.upsert(account.clone());
-    store.save()?;
+    if let Err(e) = store.save() {
+        crate::launch::log_launch(&format!("[auth] no se pudo guardar la cuenta: {e}"));
+    }
     Ok(account)
 }
