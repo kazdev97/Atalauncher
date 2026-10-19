@@ -1,5 +1,5 @@
 {
-  "version": "0.2.3",
-  "notes": "Arregla el error 'invalid zip archive' al instalar Java: ahora se comprueba que la descarga este completa y, si el zip llega cortado o corrupto, se reintenta hasta 3 veces y se prueba un segundo origen (Microsoft OpenJDK) si Adoptium falla.",
+  "version": "0.2.4",
+  "notes": "Arregla el error 'El sistema no puede encontrar la ruta especificada' al iniciar sesion o guardar ajustes: si la carpeta Documentos no existe o no se puede escribir (OneDrive redirigido, unidad desconectada), el launcher usa automaticamente otra ubicacion en vez de fallar.",
   "url": "https://raw.githubusercontent.com/kazdev97/Atalauncher/main/builds/atalauncher.exe"
 }

@@ -8,12 +8,47 @@ pub const DEFAULT_SOURCE_URL: &str =
     "https://raw.githubusercontent.com/kazdev97/Hallogeey/main/index.json";
 
 pub fn launcher_data_dir() -> PathBuf {
-    let base = dirs::document_dir()
-        .or_else(dirs::home_dir)
-        .unwrap_or_else(|| PathBuf::from("."));
-    let dir = base.join(APP_NAME);
-    fs::create_dir_all(&dir).ok();
-    dir
+    static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| {
+        let mut candidates: Vec<PathBuf> = Vec::new();
+        if let Some(d) = dirs::document_dir() {
+            candidates.push(d.join(APP_NAME));
+        }
+        if let Some(d) = dirs::data_dir() {
+            candidates.push(d.join(APP_NAME));
+        }
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(parent) = exe.parent() {
+                candidates.push(parent.join(APP_NAME));
+            }
+        }
+        if let Some(d) = dirs::home_dir() {
+            candidates.push(d.join(APP_NAME));
+        }
+        candidates.push(PathBuf::from(".").join(APP_NAME));
+        for dir in &candidates {
+            if dir_is_usable(dir) {
+                return dir.clone();
+            }
+        }
+        candidates.remove(0)
+    })
+    .clone()
+}
+
+/// Comprueba que la carpeta se pueda crear y escribir de verdad. Si la ruta de
+/// Documentos esta redirigida a una unidad que no existe (OneDrive desconectado,
+/// disco extraible) create_dir_all falla con 'os error 3' y el guardado reventaba.
+fn dir_is_usable(dir: &Path) -> bool {
+    if fs::create_dir_all(dir).is_err() {
+        return false;
+    }
+    let probe = dir.join(".write_probe");
+    if fs::write(&probe, b"ok").is_err() {
+        return false;
+    }
+    fs::remove_file(&probe).ok();
+    true
 }
 
 pub fn instances_dir() -> PathBuf {
@@ -90,10 +125,14 @@ impl Settings {
     }
 
     pub fn save(&self) -> Result<(), String> {
-        let path = settings_file();
         let json =
             serde_json::to_string_pretty(self).map_err(|e| format!("serialize settings: {e}"))?;
-        fs::write(&path, json).map_err(|e| format!("guardar settings: {e}"))
+        let path = settings_file();
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("crear carpeta de settings {}: {e}", parent.display()))?;
+        }
+        fs::write(&path, json).map_err(|e| format!("guardar settings en {}: {e}", path.display()))
     }
     pub fn effective_ram_mb(&self) -> u32 {
         if self.max_ram_mb > 0 {
@@ -140,7 +179,12 @@ impl AccountStore {
     pub fn save(&self) -> Result<(), String> {
         let json = serde_json::to_string_pretty(self)
             .map_err(|e| format!("serialize accounts: {e}"))?;
-        fs::write(accounts_file(), json).map_err(|e| format!("guardar cuentas: {e}"))
+        let path = accounts_file();
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("crear carpeta de cuentas {}: {e}", parent.display()))?;
+        }
+        fs::write(&path, json).map_err(|e| format!("guardar cuentas en {}: {e}", path.display()))
     }
 
     pub fn selected(&self) -> Option<&Account> {
