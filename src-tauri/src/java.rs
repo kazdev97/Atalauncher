@@ -142,26 +142,75 @@ fn java_executable_in_dir(dir: &Path) -> Option<PathBuf> {
     }
     None
 }
+/// Limite de tiempo para `java -version`. Si un java.exe se queda colgado
+/// (antivirus escaneando, ejecutable corrupto, dialogo de Windows esperando)
+/// el launcher se quedaba para siempre en "Buscando el Java...".
+const JAVA_VERSION_TIMEOUT: Duration = Duration::from_secs(15);
+
+fn run_java_version(exe: &Path, timeout: Duration) -> Result<String, String> {
+    let mut cmd = Command::new(exe);
+    cmd.arg("-version")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: no abrir consola
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("ejecutar java -version: {e}"))?;
+    let out_thread = child.stdout.take().map(|mut s| {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            let _ = std::io::Read::read_to_end(&mut s, &mut buf);
+            buf
+        })
+    });
+    let err_thread = child.stderr.take().map(|mut s| {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            let _ = std::io::Read::read_to_end(&mut s, &mut buf);
+            buf
+        })
+    });
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(format!(
+                        "java -version no respondio en {} segundos",
+                        timeout.as_secs()
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(e) => return Err(format!("esperar java -version: {e}")),
+        }
+    }
+    let mut out = String::new();
+    if let Some(t) = out_thread {
+        if let Ok(buf) = t.join() {
+            out.push_str(&String::from_utf8_lossy(&buf));
+        }
+    }
+    out.push('\n');
+    if let Some(t) = err_thread {
+        if let Ok(buf) = t.join() {
+            out.push_str(&String::from_utf8_lossy(&buf));
+        }
+    }
+    Ok(out)
+}
+
 pub fn validate_java_executable(exe: &Path, min_major: u32) -> Result<u32, String> {
     let java_cmd = if exe.to_string_lossy().to_lowercase().ends_with("javaw.exe") {
         exe.parent().unwrap().join("java.exe")
     } else {
         exe.to_path_buf()
     };
-    let mut cmd = Command::new(&java_cmd);
-    cmd.arg("-version")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    #[cfg(target_os = "windows")]
-    cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: no abrir consola
-    let output = cmd
-        .output()
-        .map_err(|e| format!("ejecutar java -version: {e}"))?;
-    let out = format!(
-        "{}\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+    let out = run_java_version(&java_cmd, JAVA_VERSION_TIMEOUT)?;
     let lower = out.to_lowercase();
     if cfg!(target_os = "windows") && (lower.contains("32-bit") || lower.contains("32 bit")) {
         return Err("Java de 32 bits no es compatible".to_string());

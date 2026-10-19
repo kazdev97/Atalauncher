@@ -826,13 +826,16 @@ async function launchInstance(inst) {
   const settings = await call("settings_get", {}).catch(() => null) || {};
   let javaPath = (settings.java_path_override || "").trim();
   if (!javaPath) {
-    status("game-state", "Buscando el Java que necesita " + (inst.game_version || "?") + " (Mojang)...");
+    status("game-state", "Buscando el Java que necesita " + (inst.game_version || "?") + "...");
+    awaitingJava = true;
     try {
       const j = await call("java_resolve", { name: inst.name });
       javaPath = j.path;
     } catch (e) {
       status("game-state", "No se pudo obtener Java: " + e.message);
       return;
+    } finally {
+      awaitingJava = false;
     }
   }
   if (settings.auto_update && inst.remote) {
@@ -893,7 +896,11 @@ EVENT.listen("launch/exit", () => {
 EVENT.listen("launch/error", (data) => status("game-state", data.payload));
 EVENT.listen("sync/status", (data) => status("instances-status", data.payload));
 EVENT.listen("sync/progress", (data) => setInstallProgress(data.payload.percent || 0, data.payload.status || ""));
-EVENT.listen("java/progress", (data) => status("settings-status", data.payload));
+let awaitingJava = false;
+EVENT.listen("java/progress", (data) => {
+  status("settings-status", data.payload);
+  if (awaitingJava) status("game-state", data.payload);
+});
 const donateBtn = $("donate-btn");
 if (donateBtn) {
   donateBtn.addEventListener("click", () => {

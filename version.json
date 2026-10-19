@@ -1,5 +1,5 @@
 {
-  "version": "0.2.1",
-  "notes": "Se verifica que el Java del launcher este completo (librerias nativas de AWT); si falta algo se reinstala solo. Arregla el crash de FancyMenu por awt.dll eliminado (antivirus).",
+  "version": "0.2.2",
+  "notes": "La comprobacion de Java ya no se puede quedar colgada: se limita a 15s (antes, si java.exe no respondia, el launcher se quedaba para siempre en 'Buscando el Java que necesita ...'). Ademas la consola muestra el progreso de Java (buscar, descargar, extraer) en vez de quedarse en el mensaje inicial.",
   "url": "https://raw.githubusercontent.com/kazdev97/Atalauncher/main/builds/atalauncher.exe"
 }
