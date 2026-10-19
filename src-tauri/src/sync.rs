@@ -108,6 +108,8 @@ pub struct Manifest {
     pub protected: Vec<String>,
     #[serde(default)]
     pub managed: Vec<String>,
+    #[serde(default)]
+    pub default_resourcepacks: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

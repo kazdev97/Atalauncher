@@ -1,5 +1,5 @@
 {
-  "version": "0.1.9",
-  "notes": "Los archivos grandes (como los binarios de watermedia, 137MB) se descargan sin corte por tiempo; antes se abortaban a los 5 minutos.",
+  "version": "0.2.0",
+  "notes": "El texture pack del pack se activa automaticamente al jugar (se anade a options.txt antes de arrancar el juego).",
   "url": "https://raw.githubusercontent.com/kazdev97/Atalauncher/main/builds/atalauncher.exe"
 }

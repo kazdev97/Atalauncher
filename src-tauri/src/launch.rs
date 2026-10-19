@@ -545,6 +545,97 @@ fn validate_launch_files(
     ));
     Ok(())
 }
+fn ensure_default_resourcepacks(instance_dir: &Path) {
+    let mut names: Vec<String> = crate::sync::load_manifest_cache(instance_dir)
+        .map(|m| m.default_resourcepacks)
+        .unwrap_or_default();
+    if names.is_empty() {
+        names = crate::config::DEFAULT_RESOURCE_PACKS.iter().map(|s| s.to_string()).collect();
+    }
+    let packs_dir = instance_dir.join("resourcepacks");
+    let mut wanted: Vec<String> = Vec::new();
+    for raw in names {
+        let raw = raw.trim().to_string();
+        if raw.is_empty() {
+            continue;
+        }
+        let entry = if raw.starts_with("file/") || raw == "vanilla" || raw.contains(':') {
+            raw.clone()
+        } else {
+            format!("file/{raw}")
+        };
+        let rel = entry.strip_prefix("file/").unwrap_or(&entry);
+        if packs_dir.join(rel).exists() {
+            wanted.push(entry);
+        }
+    }
+    if wanted.is_empty() {
+        return;
+    }
+    let options_path = instance_dir.join("options.txt");
+    let existing = fs::read_to_string(&options_path).unwrap_or_default();
+    let eol = if existing.contains("\r\n") { "\r\n" } else { "\n" };
+    let mut lines: Vec<String> = existing.lines().map(|l| l.trim_end().to_string()).collect();
+
+    let mut packs: Vec<String> = Vec::new();
+    let mut packs_idx: Option<usize> = None;
+    for (i, line) in lines.iter().enumerate() {
+        if let Some(rest) = line.strip_prefix("resourcePacks:") {
+            packs = serde_json::from_str::<Vec<String>>(rest.trim()).unwrap_or_default();
+            packs_idx = Some(i);
+            break;
+        }
+    }
+    if packs.is_empty() {
+        packs.push("vanilla".to_string());
+    }
+    let mut changed = false;
+    for w in &wanted {
+        if !packs.contains(w) {
+            packs.push(w.clone());
+            changed = true;
+        }
+    }
+    let pack_line = format!("resourcePacks:{}", serde_json::to_string(&packs).unwrap_or_default());
+    match packs_idx {
+        Some(i) => {
+            if lines[i] != pack_line {
+                lines[i] = pack_line;
+                changed = true;
+            }
+        }
+        None => {
+            lines.push(pack_line);
+            changed = true;
+        }
+    }
+    for line in lines.iter_mut() {
+        if let Some(rest) = line.strip_prefix("incompatibleResourcePacks:") {
+            if let Ok(mut inc) = serde_json::from_str::<Vec<String>>(rest.trim()) {
+                let before = inc.len();
+                inc.retain(|p| !wanted.contains(p));
+                if inc.len() != before {
+                    *line = format!(
+                        "incompatibleResourcePacks:{}",
+                        serde_json::to_string(&inc).unwrap_or_default()
+                    );
+                    changed = true;
+                }
+            }
+        }
+    }
+    if !changed {
+        return;
+    }
+    let mut out = lines.join(eol);
+    out.push_str(eol);
+    if let Err(e) = fs::write(&options_path, out) {
+        log_launch(&format!("no se pudo activar el texture pack por defecto: {e}"));
+    } else {
+        log_launch(&format!("texture pack por defecto activado: {}", wanted.join(", ")));
+    }
+}
+
 pub async fn launch_minecraft(
     app: AppHandle,
     instance_name: &str,
@@ -601,6 +692,7 @@ pub async fn launch_minecraft(
             }
         }
     }
+    ensure_default_resourcepacks(&instance_dir);
     let (ram_min_mb, ram_max_mb) = crate::jvm::effective_max_ram(&instance_dir);
     let command = build_launch_command(
         java_path,
@@ -647,6 +739,7 @@ pub async fn launch_minecraft(
         use std::io::BufRead;
         let reader = std::io::BufReader::new(stdout);
         let app2 = app.clone();
+        let instance_dir2 = instance_dir.clone();
         std::thread::spawn(move || {
             for line in reader.lines().flatten() {
                 let _ = app2.emit(
@@ -661,6 +754,7 @@ pub async fn launch_minecraft(
                 );
             }
             let _ = app2.emit("launch/exit", pid);
+            ensure_default_resourcepacks(&instance_dir2);
             crate::antilag::stop_tunnel();
             crate::discord::set_launcher_idle();
         });

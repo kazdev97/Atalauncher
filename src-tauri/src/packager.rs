@@ -76,6 +76,19 @@ fn write_manifest(
         })
         .collect();
 
+    let default_resourcepacks: Vec<String> = fs::read_dir(instance_dir.join("resourcepacks"))
+        .map(|rd| {
+            let mut names: Vec<String> = rd
+                .flatten()
+                .filter(|e| e.path().is_file())
+                .filter_map(|e| e.file_name().into_string().ok())
+                .filter(|n| n.to_ascii_lowercase().ends_with(".zip"))
+                .collect();
+            names.sort();
+            names
+        })
+        .unwrap_or_default();
+
     let manifest = Manifest {
         format: MANIFEST_FORMAT.to_string(),
         revision: now_revision(),
@@ -90,6 +103,7 @@ fn write_manifest(
         files: manifest_files,
         protected: protected.to_vec(),
         managed: managed.to_vec(),
+        default_resourcepacks,
     };
     let f = fs::File::create(destination_dir.join("manifest.json"))
         .map_err(|e| format!("crear manifest.json: {e}"))?;

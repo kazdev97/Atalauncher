@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 pub const APP_NAME: &str = "Atalauncher";
 pub const INSTANCE_META_FILE: &str = "kazu_instance.json";
+pub const DEFAULT_RESOURCE_PACKS: &[&str] = &["HalloGeey_TexturePack.zip"];
 pub const DEFAULT_SOURCE_URL: &str =
     "https://raw.githubusercontent.com/kazdev97/Hallogeey/main/index.json";
 
