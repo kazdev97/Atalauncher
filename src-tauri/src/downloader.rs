@@ -58,11 +58,9 @@ async fn download_one(
         "tmp{}",
         std::process::id()
     ));
-    let resp = client
-        .get(url)
-        .timeout(Duration::from_secs(300))
-        .send()
+    let resp = tokio::time::timeout(Duration::from_secs(30), client.get(url).send())
         .await
+        .map_err(|_| format!("timeout de conexion {url}"))?
         .map_err(|e| format!("request {url}: {e}"))?;
     let status = resp.status();
     if !status.is_success() {
@@ -75,7 +73,11 @@ async fn download_one(
     let mut stream = resp.bytes_stream();
     let mut written: u64 = 0;
     use futures_util::StreamExt;
-    while let Some(chunk) = stream.next().await {
+    loop {
+        let next = tokio::time::timeout(Duration::from_secs(90), stream.next())
+            .await
+            .map_err(|_| format!("timeout de descarga {url}"))?;
+        let Some(chunk) = next else { break };
         let bytes = chunk.map_err(|e| format!("stream: {e}"))?;
         file.write_all(&bytes)
             .await
