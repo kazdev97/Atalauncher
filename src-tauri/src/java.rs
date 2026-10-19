@@ -362,37 +362,94 @@ pub async fn install_adoptium(
         os = adoptium_os()
     );
     let client = http_client();
-    let assets: Vec<AdoptiumAsset> =
-        get_json(&client, &api, Duration::from_secs(60)).await?;
-    let asset = assets
-        .first()
-        .ok_or_else(|| "Adoptium no devolvió ningún JDK".to_string())?;
-    let link = asset.binary.package.link.clone();
-    let name = asset.binary.package.name.clone();
-    on_status(format!("Descargando {name}..."));
+    let mut sources: Vec<(String, String)> = Vec::new();
+    match get_json::<Vec<AdoptiumAsset>>(&client, &api, Duration::from_secs(60)).await {
+        Ok(assets) => match assets.first() {
+            Some(a) => sources.push((
+                a.binary.package.name.clone(),
+                a.binary.package.link.clone(),
+            )),
+            None => on_status("Adoptium no devolvió ningún JDK".to_string()),
+        },
+        Err(e) => on_status(format!("No se pudo consultar Adoptium ({e}); probando otro origen...")),
+    }
+    // Espejo alternativo (otro host) si Adoptium falla o entrega el zip corrupto.
+    if cfg!(target_os = "windows") {
+        sources.push((
+            format!("microsoft-jdk-{major}"),
+            format!("https://aka.ms/download-jdk/microsoft-jdk-{major}-windows-x64.zip"),
+        ));
+    }
+    if sources.is_empty() {
+        return Err("no hay ningún origen disponible para descargar el JDK".to_string());
+    }
     let tmp_dir = launcher_data_dir().join("_adoptium_tmp");
     if tmp_dir.exists() {
         fs::remove_dir_all(&tmp_dir).ok();
     }
     fs::create_dir_all(&tmp_dir).ok();
     let zip_path = tmp_dir.join(format!("jdk-{major}.zip"));
-    let mut downloaded = 0u64;
-    download_file(&client, &link, &zip_path, &mut |read, _total_dl| {
-        downloaded = read;
-        on_status(format!("Descargando JDK {major}... {downloaded} bytes"));
-    })
-    .await?;
-    on_status(format!("Extrayendo JDK {major}..."));
     let extract_dir = tmp_dir.join(format!("jdk-{major}"));
+    if extract_dir.exists() {
+        fs::remove_dir_all(&extract_dir).ok();
+    }
     fs::create_dir_all(&extract_dir).ok();
-    {
-        let file = fs::File::open(&zip_path)
-            .map_err(|e| format!("abrir zip adoptium: {e}"))?;
-        let mut archive = zip::ZipArchive::new(file)
-            .map_err(|e| format!("leer zip adoptium: {e}"))?;
-        archive
-            .extract(&extract_dir)
-            .map_err(|e| format!("extraer adoptium: {e}"))?;
+    // El zip puede llegar cortado o corrupto (conexion cortada, antivirus, proxy).
+    // Se reintenta la descarga y extraccion en vez de abortar con 'invalid zip archive'.
+    let mut last_err = "descarga fallida".to_string();
+    let mut ok = false;
+    'sources: for (name, link) in &sources {
+        last_err = format!("no se pudo descargar {name}");
+        for attempt in 1..=3 {
+            if attempt > 1 {
+                on_status(format!("Reintentando {name} ({attempt}/3)..."));
+            }
+            let mut downloaded = 0u64;
+            if let Err(e) = download_file(&client, link, &zip_path, &mut |read, _total_dl| {
+                downloaded = read;
+                on_status(format!("Descargando JDK {major}... {downloaded} bytes"));
+            })
+            .await
+            {
+                last_err = e;
+                continue;
+            }
+            let size = fs::metadata(&zip_path).map(|m| m.len()).unwrap_or(0);
+            if size < 4096 {
+                last_err = format!("el JDK descargado es demasiado pequeño ({size} bytes)");
+                fs::remove_file(&zip_path).ok();
+                continue;
+            }
+            on_status(format!("Extrayendo JDK {major}..."));
+            let extracted = (|| -> Result<(), String> {
+                let file = fs::File::open(&zip_path)
+                    .map_err(|e| format!("abrir zip adoptium: {e}"))?;
+                let mut archive = zip::ZipArchive::new(file)
+                    .map_err(|e| format!("leer zip adoptium: {e}"))?;
+                archive
+                    .extract(&extract_dir)
+                    .map_err(|e| format!("extraer adoptium: {e}"))?;
+                Ok(())
+            })();
+            match extracted {
+                Ok(()) => {
+                    ok = true;
+                    break 'sources;
+                }
+                Err(e) => {
+                    last_err = e;
+                    fs::remove_file(&zip_path).ok();
+                    if extract_dir.exists() {
+                        fs::remove_dir_all(&extract_dir).ok();
+                    }
+                    fs::create_dir_all(&extract_dir).ok();
+                }
+            }
+        }
+    }
+    if !ok {
+        fs::remove_dir_all(&tmp_dir).ok();
+        return Err(format!("no se pudo instalar Java {major}: {last_err}"));
     }
     let target_root = runtime_dir().join(format!("jdk-{major}"));
     if target_root.exists() {

@@ -1,5 +1,5 @@
 {
-  "version": "0.2.2",
-  "notes": "La comprobacion de Java ya no se puede quedar colgada: se limita a 15s (antes, si java.exe no respondia, el launcher se quedaba para siempre en 'Buscando el Java que necesita ...'). Ademas la consola muestra el progreso de Java (buscar, descargar, extraer) en vez de quedarse en el mensaje inicial.",
+  "version": "0.2.3",
+  "notes": "Arregla el error 'invalid zip archive' al instalar Java: ahora se comprueba que la descarga este completa y, si el zip llega cortado o corrupto, se reintenta hasta 3 veces y se prueba un segundo origen (Microsoft OpenJDK) si Adoptium falla.",
   "url": "https://raw.githubusercontent.com/kazdev97/Atalauncher/main/builds/atalauncher.exe"
 }

@@ -87,6 +87,12 @@ async fn download_one(
     }
     file.sync_all().await.map_err(|e| format!("sync: {e}"))?;
     drop(file);
+    if total > 0 && written != total {
+        std::fs::remove_file(&tmp).ok();
+        return Err(format!(
+            "descarga incompleta ({written}/{total} bytes) para {url}"
+        ));
+    }
     std::fs::rename(&tmp, dest).map_err(|e| format!("guardar archivo: {e}"))?;
     Ok(())
 }
