@@ -884,6 +884,23 @@ $("btn-kill").addEventListener("click", async () => {
   catch (e) { status("game-state", e.message); }
 });
 
+$("btn-update-config").addEventListener("click", async () => {
+  if (!currentInstance && instances.length > 0) currentInstance = instances[0];
+  if (!currentInstance) { status("config-state", "Crea una instancia primero."); return; }
+  status("config-state", "Aplicando configuracion del servidor...");
+  try {
+    const res = await call("apply_config_remote", { name: currentInstance.name });
+    const n = (res.replaced || []).length + (res.downloaded || []).length;
+    const errs = (res.errors || []).length;
+    status("config-state", n > 0
+      ? `Configuracion actualizada (${n} archivo(s)${errs ? ", " + errs + " con error" : ""}).`
+      : "Tu configuracion ya estaba al dia.");
+    if (errs) appendLog("Errores al aplicar config: " + (res.errors || []).join("; "), "stderr");
+  } catch (e) {
+    status("config-state", "No se pudo actualizar la config: " + e.message);
+  }
+});
+
 consoleBuf.push("— consola vacía —");
 $("console").textContent = "— consola vacía —\n";
 EVENT.listen("launch/line", (data) => {

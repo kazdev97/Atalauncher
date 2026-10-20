@@ -456,16 +456,30 @@ pub fn compute_diff(instance_dir: &Path, manifest: &Manifest, previous: Option<&
         .map(|p| p.files.iter().map(|f| f.path.clone()).collect())
         .unwrap_or_default();
     let mut remote: std::collections::BTreeMap<String, String> = Default::default();
-    for f in &manifest.files {
-        if is_managed(&f.path, &managed) && !protected.contains(&f.path) {
-            remote.insert(f.path.clone(), f.sha256.clone());
-        }
-    }
 
     let local = list_local_managed(instance_dir, &managed);
     let mut local_map: std::collections::BTreeMap<String, String> = Default::default();
     for (path, hash) in local {
         local_map.insert(path, hash);
+    }
+
+    for f in &manifest.files {
+        if !is_managed(&f.path, &managed) || protected.contains(&f.path) {
+            continue;
+        }
+        let remote_hash = if f.path.starts_with("config/") {
+            // El pack solo define los valores por defecto de config: en el cliente
+            // no se reemplaza lo que el jugador ya personalizo; solo se siembra
+            // cuando el archivo no existe todavia.
+            if local_map.contains_key(&f.path) {
+                String::new()
+            } else {
+                f.sha256.clone()
+            }
+        } else {
+            f.sha256.clone()
+        };
+        remote.insert(f.path.clone(), remote_hash);
     }
 
     let mut missing = Vec::new();
@@ -516,6 +530,74 @@ pub fn compute_diff(instance_dir: &Path, manifest: &Manifest, previous: Option<&
         has_archive: !manifest.archive_url.is_empty(),
     }
 }
+
+pub async fn apply_config_updates(
+    instance_dir: &Path,
+    manifest_url: &str,
+    on_status: &mut (dyn FnMut(String) + Send),
+) -> Result<SyncResult, String> {
+    let manifest = fetch_manifest(manifest_url).await?;
+    cache_manifest(instance_dir, &manifest);
+
+    let managed = managed_folders(&manifest);
+    let protected = protected_paths(&manifest);
+    let mut jobs: Vec<DlJob> = Vec::new();
+    let mut was_replace: std::collections::HashMap<String, bool> = Default::default();
+    for f in &manifest.files {
+        if !f.path.starts_with("config/") {
+            continue;
+        }
+        if !is_managed(&f.path, &managed) || protected.contains(&f.path) {
+            continue;
+        }
+        if f.sha256.is_empty() || !local_has_changed(instance_dir, &f.path, &f.sha256) {
+            continue;
+        }
+        let url = match &f.url {
+            Some(u) if !u.is_empty() => resolve_download_url(u),
+            _ => continue,
+        };
+        let dest = instance_dir.join(&f.path);
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent).ok();
+        }
+        was_replace.insert(f.path.clone(), dest.exists());
+        jobs.push(DlJob { key: f.path.clone(), urls: vec![url], dest });
+    }
+
+    let mut downloaded = Vec::new();
+    let mut replaced = Vec::new();
+    let mut errors = Vec::new();
+    let total_jobs = jobs.len();
+    if total_jobs > 0 {
+        on_status(format!("Aplicando configuracion de servidor ({total_jobs} archivo(s))..."));
+        let client = http_client();
+        download_many(&client, jobs, MAX_CONCURRENT_DOWNLOADS, &mut |done, _, outcome| {
+            on_status(format!("Configuracion {done}/{total_jobs}..."));
+            match outcome.result {
+                Ok(()) => {
+                    if was_replace.get(&outcome.key).copied().unwrap_or(false) {
+                        replaced.push(outcome.key);
+                    } else {
+                        downloaded.push(outcome.key);
+                    }
+                }
+                Err(e) => errors.push(format!("{}: {e}", outcome.key)),
+            }
+        })
+        .await;
+    }
+
+    Ok(SyncResult {
+        applied_revision: manifest.revision.clone(),
+        replaced,
+        downloaded,
+        removed: Vec::new(),
+        backup_dir: String::new(),
+        errors,
+    })
+}
+
 async fn download_archive(
     manifest: &Manifest,
     instance_dir: &Path,

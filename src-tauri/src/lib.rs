@@ -218,6 +218,20 @@ async fn sync_apply(app: tauri::AppHandle, name: String) -> Result<sync::SyncRes
 }
 
 #[tauri::command]
+async fn apply_config_remote(app: tauri::AppHandle, name: String) -> Result<sync::SyncResult, String> {
+    let dir = instances::instance_path(&name);
+    let meta = instances::load_meta(&dir);
+    if meta.manifest_url.is_empty() {
+        return Err("La instancia no tiene URL de manifest configurada".into());
+    }
+    let handle = app.clone();
+    let mut on_status = |status: String| {
+        let _ = handle.emit("sync/status", status);
+    };
+    sync::apply_config_updates(&dir, &meta.manifest_url, &mut on_status).await
+}
+
+#[tauri::command]
 fn sync_rollback(name: String, revision: String) -> Result<sync::SyncResult, String> {
     let dir = instances::instance_path(&name);
     sync::rollback(&dir, &revision)
@@ -502,6 +516,7 @@ pub fn run() {
             source_install,
             sync_check,
             sync_apply,
+            apply_config_remote,
             sync_rollback,
             sync_list_backups,
             auto_sync_check,

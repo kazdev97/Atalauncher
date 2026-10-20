@@ -1,5 +1,5 @@
 {
-  "version": "0.2.6",
-  "notes": "El launcher ya no borra los archivos que no administra: las opciones de teclas (options.txt), journeymap, shaderpacks, emotes y demas carpetas propias del jugador nunca se tocan. Ademas, con el filtro de config activo solo se instalan immediatelyfast, fancymenu y drippyloadingscreen; lo que ya no se distribuya se elimina del cliente.",
+  "version": "0.2.7",
+  "notes": "La configuracion del jugador nunca se sobrescribe sola: el launcher solo siembra las configs que faltan y no reemplaza nada que ya exista. Para forzar cambios en la config (por ejemplo la IP del fancymenu) usa el boton 'Actualizar config del servidor' en la pestana Consola.",
   "url": "https://raw.githubusercontent.com/kazdev97/Atalauncher/main/builds/atalauncher.exe"
 }
