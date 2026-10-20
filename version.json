@@ -1,5 +1,5 @@
 {
-  "version": "0.2.7",
-  "notes": "La configuracion del jugador nunca se sobrescribe sola: el launcher solo siembra las configs que faltan y no reemplaza nada que ya exista. Para forzar cambios en la config (por ejemplo la IP del fancymenu) usa el boton 'Actualizar config del servidor' en la pestana Consola.",
+  "version": "0.2.8",
+  "notes": "La configuracion y los mods del pack se actualizan automaticamente al darle a Jugar. En una instalacion nueva se instala todo completo.",
   "url": "https://raw.githubusercontent.com/kazdev97/Atalauncher/main/builds/atalauncher.exe"
 }
