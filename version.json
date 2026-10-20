@@ -1,5 +1,5 @@
 {
-  "version": "0.2.5",
-  "notes": "Arregla los errores al guardar cuentas y ajustes ('El sistema no puede encontrar la ruta especificada' y 'El sistema no puede encontrar el archivo especificado'): ahora guarda en la primera carpeta que funcione (Documentos, AppData, carpeta del launcher), siempre lee la copia mas reciente y el inicio de sesion ya no se cancela si el disco falla.",
+  "version": "0.2.6",
+  "notes": "El launcher ya no borra los archivos que no administra: las opciones de teclas (options.txt), journeymap, shaderpacks, emotes y demas carpetas propias del jugador nunca se tocan. Ademas, con el filtro de config activo solo se instalan immediatelyfast, fancymenu y drippyloadingscreen; lo que ya no se distribuya se elimina del cliente.",
   "url": "https://raw.githubusercontent.com/kazdev97/Atalauncher/main/builds/atalauncher.exe"
 }

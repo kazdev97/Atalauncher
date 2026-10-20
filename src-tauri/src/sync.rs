@@ -441,15 +441,20 @@ fn list_local_managed(instance_dir: &Path, managed: &[String]) -> Vec<(String, S
 }
 pub async fn check_updates(instance_dir: &Path, manifest_url: &str) -> Result<SyncDiff, String> {
     let manifest = fetch_manifest(manifest_url).await?;
+    let previous = load_manifest_cache(instance_dir);
+    let diff = compute_diff(instance_dir, &manifest, previous.as_ref());
     cache_manifest(instance_dir, &manifest);
-    Ok(compute_diff(instance_dir, &manifest))
+    Ok(diff)
 }
 
-pub fn compute_diff(instance_dir: &Path, manifest: &Manifest) -> SyncDiff {
+pub fn compute_diff(instance_dir: &Path, manifest: &Manifest, previous: Option<&Manifest>) -> SyncDiff {
     let local_meta = crate::instances::load_meta(instance_dir);
     let local_revision = local_meta.server_version;
     let managed = managed_folders(manifest);
     let protected = protected_paths(manifest);
+    let previous_paths: HashSet<String> = previous
+        .map(|p| p.files.iter().map(|f| f.path.clone()).collect())
+        .unwrap_or_default();
     let mut remote: std::collections::BTreeMap<String, String> = Default::default();
     for f in &manifest.files {
         if is_managed(&f.path, &managed) && !protected.contains(&f.path) {
@@ -478,7 +483,10 @@ pub fn compute_diff(instance_dir: &Path, manifest: &Manifest) -> SyncDiff {
 
     let mut extra = Vec::new();
     for path in local_map.keys() {
-        if !remote.contains_key(path) {
+        if remote.contains_key(path) {
+            continue;
+        }
+        if previous_paths.contains(path) {
             extra.push(path.clone());
         }
     }
@@ -563,8 +571,9 @@ pub async fn apply_updates(
     on_status: &mut (dyn FnMut(String) + Send),
 ) -> Result<SyncResult, String> {
     let manifest = fetch_manifest(manifest_url).await?;
+    let previous = load_manifest_cache(instance_dir);
+    let diff = compute_diff(instance_dir, &manifest, previous.as_ref());
     cache_manifest(instance_dir, &manifest);
-    let diff = compute_diff(instance_dir, &manifest);
     if diff.up_to_date && diff.change_count == 0 {
         return Ok(SyncResult {
             applied_revision: manifest.revision.clone(),

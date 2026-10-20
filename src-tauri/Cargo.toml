@@ -1,6 +1,6 @@
 [package]
 name = "atalauncher"
-version = "0.2.5"
+version = "0.2.6"
 description = "Atalauncher - launcher de Minecraft con control de instancias para el owner"
 authors = ["Kaz"]
 edition = "2021"
