@@ -658,6 +658,21 @@ fn copy_missing_tree(src: &Path, dst: &Path, copied: &mut usize) {
     }
 }
 
+fn count_files_tree(dir: &Path) -> usize {
+    let mut n = 0usize;
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            if is_dir {
+                n += count_files_tree(&entry.path());
+            } else {
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
 fn merge_journeymap_servers(instance_dir: &Path) {
     let mp = instance_dir.join("journeymap").join("data").join("mp");
     let entries = match fs::read_dir(&mp) {
@@ -685,27 +700,18 @@ fn merge_journeymap_servers(instance_dir: &Path) {
         if dirs.len() < 2 {
             continue;
         }
-        let canonical = dirs
-            .iter()
-            .max_by_key(|d| {
-                let count = fs::read_dir(d)
-                    .map(|rd| rd.flatten().count())
-                    .unwrap_or(0);
-                let mtime = fs::metadata(d).and_then(|m| m.modified()).ok();
-                (count, mtime)
-            })
-            .cloned()
-            .unwrap();
         let mut copied = 0usize;
-        for dir in &dirs {
-            if dir == &canonical {
-                continue;
+        for target in &dirs {
+            for source in &dirs {
+                if source != target {
+                    copy_missing_tree(source, target, &mut copied);
+                }
             }
-            copy_missing_tree(dir, &canonical, &mut copied);
         }
         if copied > 0 {
+            let total: usize = dirs.iter().map(|d| count_files_tree(d)).sum();
             log_launch(&format!(
-                "journeymap: combinadas {} carpetas del servidor {uuid} ({copied} archivos recuperados)",
+                "journeymap: combinadas {} carpetas del servidor {uuid} ({copied} archivos recuperados, {total} en total)",
                 dirs.len()
             ));
         }
@@ -832,6 +838,7 @@ pub async fn launch_minecraft(
             }
             let _ = app2.emit("launch/exit", pid);
             ensure_default_resourcepacks(&instance_dir2);
+            merge_journeymap_servers(&instance_dir2);
             crate::antilag::stop_tunnel();
             crate::discord::set_launcher_idle();
         });

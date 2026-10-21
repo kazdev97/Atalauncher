@@ -1,5 +1,5 @@
 {
-  "version": "0.2.9",
-  "notes": "Al cambiar la IP del servidor, JourneyMap creaba una carpeta nueva y el mapa salia en blanco. Ahora el launcher combina automaticamente las carpetas del mismo servidor antes de arrancar, asi nadie pierde su mapa ni sus waypoints.",
+  "version": "0.2.10",
+  "notes": "Mejora el arreglo del mapa de JourneyMap: ahora combina TODAS las carpetas del mismo servidor entre si (union completa), no solo hacia una, para que nadie pierda su mapa ni sus waypoints aunque cambie la IP.",
   "url": "https://raw.githubusercontent.com/kazdev97/Atalauncher/main/builds/atalauncher.exe"
 }
