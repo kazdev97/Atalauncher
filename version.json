@@ -1,5 +1,5 @@
 {
-  "version": "0.2.8",
-  "notes": "La configuracion y los mods del pack se actualizan automaticamente al darle a Jugar. En una instalacion nueva se instala todo completo.",
+  "version": "0.2.9",
+  "notes": "Al cambiar la IP del servidor, JourneyMap creaba una carpeta nueva y el mapa salia en blanco. Ahora el launcher combina automaticamente las carpetas del mismo servidor antes de arrancar, asi nadie pierde su mapa ni sus waypoints.",
   "url": "https://raw.githubusercontent.com/kazdev97/Atalauncher/main/builds/atalauncher.exe"
 }
