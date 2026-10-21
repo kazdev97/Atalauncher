@@ -104,6 +104,7 @@ fn write_manifest(
         protected: protected.to_vec(),
         managed: managed.to_vec(),
         default_resourcepacks,
+        banned: Vec::new(),
     };
     let f = fs::File::create(destination_dir.join("manifest.json"))
         .map_err(|e| format!("crear manifest.json: {e}"))?;

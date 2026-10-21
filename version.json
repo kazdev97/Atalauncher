@@ -1,5 +1,5 @@
 {
-  "version": "0.2.10",
-  "notes": "Mejora el arreglo del mapa de JourneyMap: ahora combina TODAS las carpetas del mismo servidor entre si (union completa), no solo hacia una, para que nadie pierda su mapa ni sus waypoints aunque cambie la IP.",
+  "version": "0.2.11",
+  "notes": "El launcher ahora puede forzar el borrado de mods concretos del pack (lista 'banned') aunque no estuvieran en el manifest anterior. Se elimina CustomNPCs en todos los clientes.",
   "url": "https://raw.githubusercontent.com/kazdev97/Atalauncher/main/builds/atalauncher.exe"
 }

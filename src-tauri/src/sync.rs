@@ -110,6 +110,8 @@ pub struct Manifest {
     pub managed: Vec<String>,
     #[serde(default)]
     pub default_resourcepacks: Vec<String>,
+    #[serde(default)]
+    pub banned: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -408,6 +410,17 @@ fn is_managed(path: &str, managed: &[String]) -> bool {
     let top = path.split('/').next().unwrap_or("");
     managed.iter().any(|f| f == top)
 }
+
+fn is_banned(path: &str, banned: &[String]) -> bool {
+    if banned.is_empty() {
+        return false;
+    }
+    banned.iter().any(|b| {
+        path == b
+            || path.starts_with(&format!("{b}/"))
+            || path.strip_suffix(".disabled").map_or(false, |p| p == b || p.starts_with(&format!("{b}/")))
+    })
+}
 fn list_local_managed(instance_dir: &Path, managed: &[String]) -> Vec<(String, String)> {
     let mut out = Vec::new();
     for folder in managed {
@@ -488,7 +501,7 @@ pub fn compute_diff(instance_dir: &Path, manifest: &Manifest, previous: Option<&
         if remote.contains_key(path) {
             continue;
         }
-        if previous_paths.contains(path) {
+        if previous_paths.contains(path) || is_banned(&path, &manifest.banned) {
             extra.push(path.clone());
         }
     }
