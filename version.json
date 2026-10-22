@@ -1,5 +1,5 @@
 {
-  "version": "0.2.13",
-  "notes": "El launcher ya no toca la carpeta de JourneyMap al iniciar o cerrar el juego. Las actualizaciones del pack ya no incluyen archivos de estado que FancyMenu reescribe (options, variables, etc.), asi que el aviso de actualizaciones desaparece cuando todo esta al dia.",
+  "version": "0.2.14",
+  "notes": "La carpeta fancymenu_data ahora se actualiza con el pack. Los archivos de estado que el juego reescribe (options, variables, etc.) se actualizan igual pero ya no dejan el aviso de actualizaciones pendiente.",
   "url": "https://raw.githubusercontent.com/kazdev97/Atalauncher/main/builds/atalauncher.exe"
 }

@@ -112,6 +112,11 @@ pub struct Manifest {
     pub default_resourcepacks: Vec<String>,
     #[serde(default)]
     pub banned: Vec<String>,
+    /// Archivos que el juego reescribe en caliente (estado de FancyMenu, etc.).
+    /// Se actualizan igual que el resto, pero no cuentan como "pendiente" en
+    /// el aviso de actualizaciones, porque su hash siempre cambia al jugar.
+    #[serde(default)]
+    pub volatile: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -440,6 +445,19 @@ fn is_banned(path: &str, banned: &[String]) -> bool {
             || path.strip_suffix(".disabled").map_or(false, |p| p == b || p.starts_with(&format!("{b}/")))
     })
 }
+
+fn volatile_paths(manifest: &Manifest) -> Vec<String> {
+    manifest.volatile.clone()
+}
+
+fn is_volatile(path: &str, volatile: &[String]) -> bool {
+    if volatile.is_empty() {
+        return false;
+    }
+    volatile
+        .iter()
+        .any(|v| path == v || path.starts_with(&format!("{v}/")))
+}
 fn list_local_managed(instance_dir: &Path, managed: &[String]) -> Vec<(String, String)> {
     let mut out = Vec::new();
     for folder in managed {
@@ -502,13 +520,14 @@ pub fn compute_diff(instance_dir: &Path, manifest: &Manifest, previous: Option<&
         remote.insert(f.path.clone(), f.sha256.clone());
     }
 
+    let volatile = volatile_paths(manifest);
     let mut missing = Vec::new();
     let mut different = Vec::new();
     for (path, hash) in &remote {
         match local_map.get(path) {
             None => missing.push(path.clone()),
             Some(local_hash) => {
-                if !hash.is_empty() && local_hash != hash {
+                if !hash.is_empty() && local_hash != hash && !is_volatile(path, &volatile) {
                     different.push(path.clone());
                 }
             }
