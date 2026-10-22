@@ -636,88 +636,6 @@ fn ensure_default_resourcepacks(instance_dir: &Path) {
     }
 }
 
-fn copy_missing_tree(src: &Path, dst: &Path, copied: &mut usize) {
-    let entries = match fs::read_dir(src) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
-    if fs::create_dir_all(dst).is_err() {
-        return;
-    }
-    for entry in entries.flatten() {
-        let from = entry.path();
-        let to = dst.join(entry.file_name());
-        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
-        if is_dir {
-            copy_missing_tree(&from, &to, copied);
-        } else if !to.exists() {
-            if fs::copy(&from, &to).is_ok() {
-                *copied += 1;
-            }
-        }
-    }
-}
-
-fn count_files_tree(dir: &Path) -> usize {
-    let mut n = 0usize;
-    if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
-            if is_dir {
-                n += count_files_tree(&entry.path());
-            } else {
-                n += 1;
-            }
-        }
-    }
-    n
-}
-
-fn merge_journeymap_servers(instance_dir: &Path) {
-    let mp = instance_dir.join("journeymap").join("data").join("mp");
-    let entries = match fs::read_dir(&mp) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
-    let mut groups: std::collections::HashMap<String, Vec<std::path::PathBuf>> = Default::default();
-    for entry in entries.flatten() {
-        let ft = match entry.file_type() {
-            Ok(t) => t,
-            Err(_) => continue,
-        };
-        if !ft.is_dir() {
-            continue;
-        }
-        let name = entry.file_name().to_string_lossy().to_string();
-        if let Some(idx) = name.rfind('_') {
-            let uuid = name[idx + 1..].to_string();
-            if !uuid.is_empty() {
-                groups.entry(uuid).or_default().push(entry.path());
-            }
-        }
-    }
-    for (uuid, dirs) in groups {
-        if dirs.len() < 2 {
-            continue;
-        }
-        let mut copied = 0usize;
-        for target in &dirs {
-            for source in &dirs {
-                if source != target {
-                    copy_missing_tree(source, target, &mut copied);
-                }
-            }
-        }
-        if copied > 0 {
-            let total: usize = dirs.iter().map(|d| count_files_tree(d)).sum();
-            log_launch(&format!(
-                "journeymap: combinadas {} carpetas del servidor {uuid} ({copied} archivos recuperados, {total} en total)",
-                dirs.len()
-            ));
-        }
-    }
-}
-
 pub async fn launch_minecraft(
     app: AppHandle,
     instance_name: &str,
@@ -775,7 +693,6 @@ pub async fn launch_minecraft(
         }
     }
         ensure_default_resourcepacks(&instance_dir);
-        merge_journeymap_servers(&instance_dir);
         let (ram_min_mb, ram_max_mb) = crate::jvm::effective_max_ram(&instance_dir);
     let command = build_launch_command(
         java_path,
@@ -838,7 +755,6 @@ pub async fn launch_minecraft(
             }
             let _ = app2.emit("launch/exit", pid);
             ensure_default_resourcepacks(&instance_dir2);
-            merge_journeymap_servers(&instance_dir2);
             crate::antilag::stop_tunnel();
             crate::discord::set_launcher_idle();
         });
