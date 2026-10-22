@@ -176,13 +176,13 @@ pub async fn get_text(client: &Client, url: &str, timeout: Duration) -> Result<S
         .timeout(timeout)
         .send()
         .await
-        .map_err(|e| format!("request {url}: {e}"))?;
+        .map_err(|e| format!("no se pudo conectar: {e}"))?;
     if !resp.status().is_success() {
-        return Err(format!("HTTP {} para {url}", resp.status().as_u16()));
+        return Err(format!("el servidor respondió HTTP {}", resp.status().as_u16()));
     }
     resp.text()
         .await
-        .map_err(|e| format!("leer respuesta {url}: {e}"))
+        .map_err(|e| format!("no se pudo leer la respuesta: {e}"))
 }
 pub async fn get_json<T: serde::de::DeserializeOwned>(
     client: &Client,
@@ -194,13 +194,13 @@ pub async fn get_json<T: serde::de::DeserializeOwned>(
         .timeout(timeout)
         .send()
         .await
-        .map_err(|e| format!("request {url}: {e}"))?;
+        .map_err(|e| format!("no se pudo conectar: {e}"))?;
     if !resp.status().is_success() {
-        return Err(format!("HTTP {} para {url}", resp.status().as_u16()));
+        return Err(format!("el servidor respondió HTTP {}", resp.status().as_u16()));
     }
     resp.json::<T>()
         .await
-        .map_err(|e| format!("JSON {url}: {e}"))
+        .map_err(|e| format!("respuesta no válida: {e}"))
 }
 pub async fn get_json_auth<T: serde::de::DeserializeOwned>(
     client: &Client,
@@ -214,13 +214,13 @@ pub async fn get_json_auth<T: serde::de::DeserializeOwned>(
         .timeout(timeout)
         .send()
         .await
-        .map_err(|e| format!("request {url}: {e}"))?;
+        .map_err(|e| format!("no se pudo conectar: {e}"))?;
     if !resp.status().is_success() {
-        return Err(format!("HTTP {} para {url}", resp.status().as_u16()));
+        return Err(format!("el servidor respondió HTTP {}", resp.status().as_u16()));
     }
     resp.json::<T>()
         .await
-        .map_err(|e| format!("JSON {url}: {e}"))
+        .map_err(|e| format!("respuesta no válida: {e}"))
 }
 pub async fn post_form_json<T: serde::de::DeserializeOwned>(
     client: &Client,
@@ -234,13 +234,13 @@ pub async fn post_form_json<T: serde::de::DeserializeOwned>(
         .timeout(timeout)
         .send()
         .await
-        .map_err(|e| format!("post {url}: {e}"))?;
+        .map_err(|e| format!("no se pudo conectar: {e}"))?;
     if !resp.status().is_success() {
-        return Err(format!("HTTP {} para {url}", resp.status().as_u16()));
+        return Err(format!("el servidor respondió HTTP {}", resp.status().as_u16()));
     }
     resp.json::<T>()
         .await
-        .map_err(|e| format!("JSON {url}: {e}"))
+        .map_err(|e| format!("respuesta no válida: {e}"))
 }
 pub async fn post_json<T: serde::de::DeserializeOwned>(
     client: &Client,
@@ -254,13 +254,13 @@ pub async fn post_json<T: serde::de::DeserializeOwned>(
         .timeout(timeout)
         .send()
         .await
-        .map_err(|e| format!("post {url}: {e}"))?;
+        .map_err(|e| format!("no se pudo conectar: {e}"))?;
     if !resp.status().is_success() {
-        return Err(format!("HTTP {} para {url}", resp.status().as_u16()));
+        return Err(format!("el servidor respondió HTTP {}", resp.status().as_u16()));
     }
     resp.json::<T>()
         .await
-        .map_err(|e| format!("JSON {url}: {e}"))
+        .map_err(|e| format!("respuesta no válida: {e}"))
 }
 pub async fn post_form_no_response(
     client: &Client,
@@ -274,9 +274,9 @@ pub async fn post_form_no_response(
         .timeout(timeout)
         .send()
         .await
-        .map_err(|e| format!("post {url}: {e}"))?;
+        .map_err(|e| format!("no se pudo conectar: {e}"))?;
     if !resp.status().is_success() {
-        return Err(format!("HTTP {} para {url}", resp.status().as_u16()));
+        return Err(format!("el servidor respondió HTTP {}", resp.status().as_u16()));
     }
     Ok(())
 }

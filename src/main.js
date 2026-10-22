@@ -334,8 +334,8 @@ async function loadSource() {
       : "No hay instancias disponibles en la fuente.");
   } catch (e) {
     const msg = (e && e.message) ? e.message : String(e);
-    renderSourceStatus("No se pudo consultar la fuente: " + msg);
-    status("instances-status", "Error al consultar " + url + ": " + msg);
+    renderSourceStatus("No se pudo cargar la lista de instancias. Revisa tu conexion e intentalo de nuevo.");
+    status("instances-status", "No se pudo cargar la lista: " + msg);
   }
 }
 

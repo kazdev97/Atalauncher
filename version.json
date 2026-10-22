@@ -1,5 +1,5 @@
 {
-  "version": "0.2.11",
-  "notes": "El launcher ahora puede forzar el borrado de mods concretos del pack (lista 'banned') aunque no estuvieran en el manifest anterior. Se elimina CustomNPCs en todos los clientes.",
+  "version": "0.2.12",
+  "notes": "Los mensajes de error ya no muestran direcciones internas y reintentan la descarga de la lista/actualizaciones si la red falla.",
   "url": "https://raw.githubusercontent.com/kazdev97/Atalauncher/main/builds/atalauncher.exe"
 }

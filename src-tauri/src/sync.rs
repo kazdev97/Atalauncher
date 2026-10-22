@@ -216,9 +216,19 @@ pub async fn fetch_manifest(url_or_path: &str) -> Result<Manifest, String> {
                 url_or_path
             ));
         }
-        crate::downloader::get_text(&client, &resolved, Duration::from_secs(30))
-            .await
-            .map_err(|e| format!("descargar manifest: {e}"))?
+        let mut last_err = String::new();
+        for attempt in 1..=3 {
+            match crate::downloader::get_text(&client, &resolved, Duration::from_secs(30)).await {
+                Ok(text) => return parse_manifest(&text),
+                Err(e) => {
+                    last_err = e;
+                    if attempt < 3 {
+                        tokio::time::sleep(Duration::from_millis(800 * attempt as u64)).await;
+                    }
+                }
+            }
+        }
+        return Err(format!("no se pudo descargar la informacion del pack: {last_err}"));
     };
     parse_manifest(&raw)
 }
@@ -298,10 +308,19 @@ pub fn parse_source_index(raw: &str) -> Result<Vec<SourceInstance>, String> {
 pub async fn fetch_source_index(url: &str) -> Result<Vec<SourceInstance>, String> {
     let client = http_client();
     let resolved = resolve_download_url(url);
-    let text = crate::downloader::get_text(&client, &resolved, Duration::from_secs(30))
-        .await
-        .map_err(|e| format!("descargar índice: {e}"))?;
-    parse_source_index(&text)
+    let mut last_err = String::new();
+    for attempt in 1..=3 {
+        match crate::downloader::get_text(&client, &resolved, Duration::from_secs(30)).await {
+            Ok(text) => return parse_source_index(&text),
+            Err(e) => {
+                last_err = e;
+                if attempt < 3 {
+                    tokio::time::sleep(Duration::from_millis(800 * attempt as u64)).await;
+                }
+            }
+        }
+    }
+    Err(format!("no se pudo descargar la lista de instancias: {last_err}"))
 }
 #[allow(clippy::too_many_arguments)]
 pub async fn install_remote_instance(
