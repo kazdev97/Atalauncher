@@ -545,6 +545,92 @@ fn validate_launch_files(
     ));
     Ok(())
 }
+
+fn copy_missing_tree(src: &Path, dst: &Path, copied: &mut u64) {
+    if !src.is_dir() {
+        return;
+    }
+    if let Ok(entries) = std::fs::read_dir(src) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            let name = p.file_name().unwrap_or_default().to_string_lossy().into_owned();
+            let rel = dst.join(&name);
+            if p.is_dir() {
+                if let Err(e) = std::fs::create_dir_all(&rel) {
+                    log_launch(&format!("journeymap: no se pudo crear {rel:?}: {e}"));
+                    continue;
+                }
+                copy_missing_tree(&p, &rel, copied);
+            } else if !rel.exists() {
+                if let Err(e) = std::fs::copy(&p, &rel) {
+                    log_launch(&format!("journeymap: no se pudo copiar {name}: {e}"));
+                } else {
+                    *copied += 1;
+                }
+            }
+        }
+    }
+}
+
+fn count_files_tree(dir: &Path) -> u64 {
+    let mut n = 0u64;
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_dir() {
+                n += count_files_tree(&p);
+            } else {
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
+fn merge_journeymap_servers(instance_dir: &Path) {
+    let mp = instance_dir.join("journeymap").join("data").join("mp");
+    if !mp.is_dir() {
+        return;
+    }
+    let mut groups: std::collections::HashMap<String, Vec<std::path::PathBuf>> =
+        std::collections::HashMap::new();
+    if let Ok(entries) = std::fs::read_dir(&mp) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if !p.is_dir() {
+                continue;
+            }
+            let name = p.file_name().unwrap_or_default().to_string_lossy().into_owned();
+            let uuid = name.rsplit('_').next().unwrap_or(&name).to_string();
+            groups.entry(uuid).or_default().push(p);
+        }
+    }
+    let mut total = 0u64;
+    for (uuid, mut folders) in groups.into_iter() {
+        if folders.len() < 2 {
+            continue;
+        }
+        folders.sort_by(|a, b| {
+            let ca = count_files_tree(a);
+            let cb = count_files_tree(b);
+            cb.cmp(&ca)
+        });
+        let count = folders.len();
+        let target = folders.remove(0);
+        let target_count = count_files_tree(&target);
+        for src in folders {
+            let mut copied = 0u64;
+            copy_missing_tree(&src, &target, &mut copied);
+            total += copied;
+        }
+        log_launch(&format!(
+            "journeymap: combinadas {} carpetas del servidor (uuid {uuid}), archivos totales ~{}",
+            count + 1,
+            target_count + total
+        ));
+    }
+}
+
 fn ensure_default_resourcepacks(instance_dir: &Path) {
     let mut names: Vec<String> = crate::sync::load_manifest_cache(instance_dir)
         .map(|m| m.default_resourcepacks)
@@ -693,6 +779,7 @@ pub async fn launch_minecraft(
         }
     }
         ensure_default_resourcepacks(&instance_dir);
+        merge_journeymap_servers(&instance_dir);
         let (ram_min_mb, ram_max_mb) = crate::jvm::effective_max_ram(&instance_dir);
     let command = build_launch_command(
         java_path,
@@ -755,6 +842,7 @@ pub async fn launch_minecraft(
             }
             let _ = app2.emit("launch/exit", pid);
             ensure_default_resourcepacks(&instance_dir2);
+            merge_journeymap_servers(&instance_dir2);
             crate::antilag::stop_tunnel();
             crate::discord::set_launcher_idle();
         });

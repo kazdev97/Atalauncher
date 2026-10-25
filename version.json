@@ -1,5 +1,5 @@
 {
-  "version": "0.2.14",
-  "notes": "La carpeta fancymenu_data ahora se actualiza con el pack. Los archivos de estado que el juego reescribe (options, variables, etc.) se actualizan igual pero ya no dejan el aviso de actualizaciones pendiente.",
+  "version": "0.2.15",
+  "notes": "Se restaura el merge de datos de JourneyMap al entrar y salir del juego: combina todas las carpetas del mismo servidor independientemente de la IP (agrupa por uuid estable), para que el mapa no se resetee al cambiar de IP. Se actualiza la IP del fancymenu a va16.holy.gg:19408.",
   "url": "https://raw.githubusercontent.com/kazdev97/Atalauncher/main/builds/atalauncher.exe"
 }
