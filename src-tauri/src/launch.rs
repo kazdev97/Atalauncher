@@ -546,45 +546,22 @@ fn validate_launch_files(
     Ok(())
 }
 
-fn copy_missing_tree(src: &Path, dst: &Path, copied: &mut u64) {
-    if !src.is_dir() {
+fn collect_rel_paths(folder: &Path, out: &mut Vec<(String, std::path::PathBuf)>) {
+    if !folder.is_dir() {
         return;
     }
-    if let Ok(entries) = std::fs::read_dir(src) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            let name = p.file_name().unwrap_or_default().to_string_lossy().into_owned();
-            let rel = dst.join(&name);
-            if p.is_dir() {
-                if let Err(e) = std::fs::create_dir_all(&rel) {
-                    log_launch(&format!("journeymap: no se pudo crear {rel:?}: {e}"));
-                    continue;
-                }
-                copy_missing_tree(&p, &rel, copied);
-            } else if !rel.exists() {
-                if let Err(e) = std::fs::copy(&p, &rel) {
-                    log_launch(&format!("journeymap: no se pudo copiar {name}: {e}"));
-                } else {
-                    *copied += 1;
-                }
-            }
-        }
-    }
-}
-
-fn count_files_tree(dir: &Path) -> u64 {
-    let mut n = 0u64;
-    if let Ok(entries) = std::fs::read_dir(dir) {
+    if let Ok(entries) = std::fs::read_dir(folder) {
         for entry in entries.flatten() {
             let p = entry.path();
             if p.is_dir() {
-                n += count_files_tree(&p);
+                collect_rel_paths(&p, out);
             } else {
-                n += 1;
+                if let Some(rel) = p.strip_prefix(folder).ok() {
+                    out.push((rel.to_string_lossy().into_owned(), p));
+                }
             }
         }
     }
-    n
 }
 
 fn merge_journeymap_servers(instance_dir: &Path) {
@@ -605,29 +582,45 @@ fn merge_journeymap_servers(instance_dir: &Path) {
             groups.entry(uuid).or_default().push(p);
         }
     }
-    let mut total = 0u64;
-    for (uuid, mut folders) in groups.into_iter() {
-        if folders.len() < 2 {
+    let mut total_copied = 0u64;
+    for (_uuid, folders) in groups.into_iter() {
+        if folders.is_empty() {
             continue;
         }
-        folders.sort_by(|a, b| {
-            let ca = count_files_tree(a);
-            let cb = count_files_tree(b);
-            cb.cmp(&ca)
-        });
-        let count = folders.len();
-        let target = folders.remove(0);
-        let target_count = count_files_tree(&target);
-        for src in folders {
-            let mut copied = 0u64;
-            copy_missing_tree(&src, &target, &mut copied);
-            total += copied;
+        // Unión de rutas relativas -> una carpeta origen que las tenga.
+        let mut union: std::collections::HashMap<String, std::path::PathBuf> =
+            std::collections::HashMap::new();
+        for folder in &folders {
+            let mut rels = Vec::new();
+            collect_rel_paths(folder, &mut rels);
+            for (rel, abs) in rels {
+                union.entry(rel).or_insert(abs);
+            }
         }
-        log_launch(&format!(
-            "journeymap: combinadas {} carpetas del servidor (uuid {uuid}), archivos totales ~{}",
-            count + 1,
-            target_count + total
-        ));
+        // Cada carpeta del grupo (incluida una nueva por cambio de IP) recibe la unión completa.
+        for folder in &folders {
+            let mut copied = 0u64;
+            for (rel, src) in &union {
+                let dst = folder.join(rel);
+                if !dst.exists() {
+                    if let Some(parent) = dst.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    match std::fs::copy(src, &dst) {
+                        Ok(_) => copied += 1,
+                        Err(e) => log_launch(&format!("journeymap: no se pudo copiar {rel}: {e}")),
+                    }
+                }
+            }
+            total_copied += copied;
+        }
+        if total_copied > 0 || folders.len() > 1 {
+            log_launch(&format!(
+                "journeymap: sincronizadas {} carpetas del servidor, +{} archivos copiados",
+                folders.len(),
+                total_copied
+            ));
+        }
     }
 }
 
