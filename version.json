@@ -1,5 +1,5 @@
 {
-  "version": "0.2.16",
-  "notes": "JourneyMap: ahora cada carpeta de servidor (incluida una nueva por cambio de IP) recibe la unión completa de datos al iniciar y al salir del juego, así el mapa no se resetea al cambiar de IP. IP del fancymenu: ut09.holy.gg:26289.",
+  "version": "0.2.17",
+  "notes": "v0.2.17: sincronización de IP del servidor y mantenimiento de instancia.",
   "url": "https://raw.githubusercontent.com/kazdev97/Atalauncher/main/builds/atalauncher.exe"
 }

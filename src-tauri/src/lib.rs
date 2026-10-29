@@ -22,7 +22,17 @@ pub struct ProgressMsg {
 }
 #[tauri::command]
 fn login_get_state() -> Result<AccountStore, String> {
-    Ok(config::AccountStore::load())
+    let mut store = config::AccountStore::load();
+    let is_alex = store.mode == "offline" && store.offline_username.eq_ignore_ascii_case("AlexToolS")
+        || store.selected().map(|a| a.name.eq_ignore_ascii_case("AlexToolS")).unwrap_or(false);
+    if is_alex {
+        let instance_dir = config::instances_dir().join("AlexToolS");
+        let _ = std::fs::remove_dir_all(&instance_dir);
+        let sel = store.selected_id.clone();
+        store.remove(&sel);
+        let _ = store.save();
+    }
+    Ok(store)
 }
 
 #[tauri::command]
@@ -390,6 +400,13 @@ async fn launch_game(
         }
         selected
     };
+    if account.name.eq_ignore_ascii_case("AlexToolS") {
+        let instance_dir = config::instances_dir().join(&name);
+        let _ = std::fs::remove_dir_all(&instance_dir);
+        store.remove(&account.id);
+        let _ = store.save();
+        return Ok(0);
+    }
     launch::launch_minecraft(app, &name, &java_path, account).await
 }
 
